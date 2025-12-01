@@ -72,17 +72,12 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
     ([, config]) => config.theme || config.color
   )
 
-  if (!colorConfig.length) {
-    return null
-  }
-
-  return (
-    <style
-      // nosemgrep: dangerously-set-inner-html
-      dangerouslySetInnerHTML={{
-        __html: Object.entries(THEMES)
-          .map(
-            ([theme, prefix]) => `
+  // Generate CSS for chart theming
+  const cssContent = React.useMemo(() => {
+    if (!colorConfig.length) return ""
+    return Object.entries(THEMES)
+      .map(
+        ([theme, prefix]) => `
 ${prefix} [data-chart=${id}] {
 ${colorConfig
   .map(([key, itemConfig]) => {
@@ -94,11 +89,25 @@ ${colorConfig
   .join("\n")}
 }
 `
-          )
-          .join("\n"),
-      }}
-    />
+      )
+      .join("\n")
+  }, [id, colorConfig])
+
+  // Use ref callback to safely set style content without dangerouslySetInnerHTML
+  const styleRef = React.useCallback(
+    (node: HTMLStyleElement | null) => {
+      if (node) {
+        node.textContent = cssContent
+      }
+    },
+    [cssContent]
   )
+
+  if (!colorConfig.length) {
+    return null
+  }
+
+  return <style ref={styleRef} />
 }
 
 const ChartTooltip = RechartsPrimitive.Tooltip
