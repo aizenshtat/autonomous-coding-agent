@@ -1,5 +1,5 @@
 {
-  "name": "claude-code-infrastructure",
+  "name": "@anthropic-ai/claude-code-infrastructure",
   "version": "1.0.0",
   "description": "AWS CDK infrastructure for Claude Code Agent",
   "main": "bin/claude-code-infrastructure.js",

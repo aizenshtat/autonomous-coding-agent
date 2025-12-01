@@ -1,5 +1,5 @@
 {
-  "name": "long-horizon-coding-agent-demo",
+  "name": "@anthropic-ai/long-horizon-coding-agent-demo",
   "version": "1.0.0",
   "description": "AWS re:Invent 2025 - Long Horizon Coding Agent Demo",
   "private": true,
