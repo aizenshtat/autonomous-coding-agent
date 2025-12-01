@@ -77,8 +77,8 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
   }
 
   return (
-    // nosemgrep: react-dangerouslysetinnerhtml - CSS injection from static theme config, not user input
     <style
+      // nosemgrep: dangerously-set-inner-html
       dangerouslySetInnerHTML={{
         __html: Object.entries(THEMES)
           .map(

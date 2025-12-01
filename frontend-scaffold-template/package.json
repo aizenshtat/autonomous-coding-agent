@@ -1,5 +1,5 @@
 {
-  "name": "frontend-scaffold-template",
+  "name": "@anthropic-ai/frontend-scaffold-template",
   "private": true,
   "version": "0.0.0",
   "type": "module",
