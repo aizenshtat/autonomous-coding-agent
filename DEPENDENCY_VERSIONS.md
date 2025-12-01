@@ -4,46 +4,52 @@ This document records the pinned dependency versions as of 2025-12-01.
 
 ## Python Dependencies (requirements.txt)
 
-| Package | Version |
-|---------|---------|
-| claude-agent-sdk | 0.1.6 |
-| boto3 | 1.28.0 |
-| PyGithub | 2.8.1 |
-| aiofiles | 23.0.0 |
-| python-dotenv | 1.0.0 |
-| opentelemetry-api | 1.20.0 |
-| aws-opentelemetry-distro | 0.13.0 |
-| diagrams | 0.23.0 |
+| Package | Version | Notes |
+|---------|---------|-------|
+| claude-agent-sdk | 0.1.4 | From pip freeze |
+| boto3 | 1.40.70 | From pip freeze |
+| PyGithub | 1.59.0 | From pip freeze |
+| aiofiles | 23.1.0 | From pip freeze |
+| python-dotenv | 1.1.1 | From pip freeze |
+| opentelemetry-api | 1.36.0 | From pip freeze |
+| aws-opentelemetry-distro | 0.13.0 | Not installed locally, kept minimum |
+| diagrams | 0.23.0 | Not installed locally, kept minimum |
 
 ## Node.js Dependencies (package.json - root)
 
+**Note:** Versions from package-lock.json (actual resolved versions).
+
 ### devDependencies
 
 | Package | Version |
 |---------|---------|
-| @playwright/test | 1.48.2 |
-| @types/node | 22.10.2 |
-| typescript | 5.7.2 |
+| @playwright/test | 1.56.1 |
+| @types/node | 22.19.1 |
+| typescript | 5.9.3 |
 
 ## Node.js Dependencies (infrastructure/package.json)
 
+**Note:** Versions from package-lock.json (actual resolved versions).
+
 ### devDependencies
 
 | Package | Version |
 |---------|---------|
-| @types/node | 20.10.0 |
-| aws-cdk | 2.115.0 |
+| @types/node | 20.19.24 |
+| aws-cdk | 2.1031.1 |
 | ts-node | 10.9.2 |
-| typescript | 5.3.3 |
+| typescript | 5.9.3 |
 
 ### dependencies
 
 | Package | Version |
 |---------|---------|
-| aws-cdk-lib | 2.115.0 |
-| constructs | 10.3.0 |
+| aws-cdk-lib | 2.221.1 |
+| constructs | 10.4.2 |
 
 ## Node.js Dependencies (frontend-scaffold-template/package.json)
+
+**Note:** No package-lock.json exists. Versions are pinned to the minimum versions previously specified (with `^` and `~` prefixes removed).
 
 ### dependencies
 
