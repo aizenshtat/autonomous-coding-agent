@@ -1,12 +1,12 @@
-# GitHub Actions workflow to trigger AgentCore when admin approves a feature
+# GitHub Actions workflow to trigger agent when admin approves a feature
 #
 # Trigger: Admin adds 🚀 reaction to an issue
-# Action: Invokes AWS Bedrock AgentCore to build the feature
+# Action: Invokes agent on VPS via SSH
 #
 # Prerequisites:
-# 1. AWS OIDC provider configured for GitHub Actions
-# 2. IAM role with permissions to invoke AgentCore
-# 3. Secrets: AWS_ROLE_ARN (or configure in this file)
+# 1. VPS with Docker installed
+# 2. SSH key configured for deploy user
+# 3. Secrets: VPS_HOST, VPS_SSH_KEY, VPS_SSH_USER
 
 name: Agent Builder
 
@@ -27,7 +27,7 @@ on:
         type: boolean
         default: false
       resume_session:
-        description: 'Resume from previous session (reads state from EFS)'
+        description: 'Resume from previous session'
         required: false
         type: boolean
         default: false
@@ -43,8 +43,8 @@ permissions:
   actions: write
 
 env:
-  AWS_REGION: us-west-2  # AgentCore deployed in us-west-2
-  AGENTCORE_AGENT_ID: antodo_agent-0UyfaL5NVq
+  CONTAINER_NAME: claude-code-agent
+  IMAGE_NAME: claude-code-agent:latest
 
 jobs:
   # Check if the issue is approved and ready to build
@@ -282,7 +282,7 @@ jobs:
           Commits will be pushed to branch \`agent-runtime\`."
           fi
 
-  # Invoke AWS Bedrock AgentCore to build the feature
+  # Invoke agent on VPS via SSH
   # Only invoke if no session is already running AND we acquired the lock
   invoke-agent:
     needs: [check-approval, acquire-runtime-lock, mark-building]
@@ -302,14 +302,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ secrets.AWS_AGENTCORE_ROLE_ARN }}
-          role-duration-seconds: 28800  # 8 hours for long agent runs
+          python-version: '3.12'
+
+      - name: Install SSH dependencies
+        run: pip install paramiko
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Verify issue still open before invoke
         env:
@@ -326,19 +332,20 @@ jobs:
           fi
           echo "Issue #$ISSUE_NUMBER is still open - proceeding with invoke"
 
-      - name: Invoke AgentCore
+      - name: Invoke Agent via SSH
         id: invoke
         env:
           ISSUE_NUMBER: ${{ needs.check-approval.outputs.issue_number }}
           ISSUE_TITLE: ${{ needs.check-approval.outputs.issue_title }}
           ISSUE_BODY: ${{ needs.check-approval.outputs.issue_body }}
           RESUME_SESSION: ${{ github.event.inputs.resume_session || 'false' }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
         run: |
-          # Generate a unique session ID (min 33 chars required by AWS)
+          # Generate a unique session ID
           SESSION_ID="gh-issue-${ISSUE_NUMBER}-$(date +%Y%m%d-%H%M%S)-${GITHUB_RUN_ID}"
           echo "session_id=$SESSION_ID" >> $GITHUB_OUTPUT
 
-          # Prepare the payload for AgentCore
           # Decode the escaped body
           DECODED_BODY=$(echo "$ISSUE_BODY" | sed 's/%0A/\n/g' | sed 's/%0D/\r/g' | sed 's/%25/%/g')
 
@@ -363,28 +370,24 @@ jobs:
           EOFPAYLOAD
           )
 
-          echo "Invoking AgentCore with payload:"
+          echo "Invoking agent on VPS with payload:"
           echo "$PAYLOAD" | jq .
 
-          # Invoke AgentCore using boto3 Python script
+          # Invoke agent using SSH Python script
           # The agent will:
-          # 1. Clone/pull the agent-runtime branch on EFS
+          # 1. Clone/pull the agent-runtime branch
           # 2. Build the feature based on issue description
           # 3. Run tests
           # 4. Push commits to agent-runtime branch (with Ref: #N)
 
-          # Note: Using direct boto3 API call instead of CLI
-          # This eliminates dependency on .bedrock_agentcore.yaml
-
-          # Upgrade boto3 to ensure bedrock-agentcore service is available
-          echo "📦 Upgrading boto3 to latest version..."
-          pip install --upgrade boto3 -q
-
-          python3 .github/scripts/invoke_agent.py \
-            --agent-arn "arn:aws:bedrock-agentcore:us-west-2:128673662201:runtime/antodo_agent-0UyfaL5NVq" \
+          python3 .github/scripts/ssh_invoke.py \
+            --host "$VPS_HOST" \
+            --user "$VPS_SSH_USER" \
+            --key-file ~/.ssh/vps_key \
             --session-id "$SESSION_ID" \
             --payload "$PAYLOAD" \
-            --region us-west-2
+            --container-name "${{ env.CONTAINER_NAME }}" \
+            --image-name "${{ env.IMAGE_NAME }}"
 
           # Check exit code
           if [ $? -eq 0 ]; then

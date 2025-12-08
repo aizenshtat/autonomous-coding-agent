@@ -19,9 +19,6 @@ permissions:
   actions: write
   contents: read
 
-env:
-  AWS_REGION: us-west-2
-
 jobs:
   # Job 1: Check if an agent session died and needs restart
   check-session-health:
@@ -31,73 +28,98 @@ jobs:
       issue_number: ${{ steps.state.outputs.issue_number }}
 
     steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-west-2
-
-      - name: Check session heartbeat via CloudWatch
-        id: health
+      - name: Setup SSH key
         run: |
-          # Debug: show time range
-          echo "Query time range:"
-          echo "  Start: $(date -u -d '15 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
-          echo "  End:   $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-          # Query latest SessionHeartbeat metric (last 15 min window)
-          # Uses only Environment dimension so we can query without knowing issue number
-          RESULT=$(aws cloudwatch get-metric-statistics \
-            --namespace ClaudeCodeAgent \
-            --metric-name SessionHeartbeat \
-            --dimensions Name=Environment,Value=reinvent \
-            --start-time "$(date -u -d '15 minutes ago' +%Y-%m-%dT%H:%M:%SZ)" \
-            --end-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --period 60 \
-            --statistics Maximum \
-            --output json)
+      - name: Check session heartbeat via SSH
+        id: health
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+          STALENESS_THRESHOLD: ${{ vars.HEARTBEAT_STALENESS_SECONDS || '300' }}
+        run: |
+          # Read metrics file from VPS via SSH
+          METRICS=$(ssh -i ~/.ssh/vps_key -o ConnectTimeout=10 ${VPS_SSH_USER}@${VPS_HOST} \
+            "cat /opt/agent/metrics/health.json 2>/dev/null || echo '{}'")
 
-          echo "CloudWatch response: $RESULT"
+          echo "Metrics from VPS: $METRICS"
 
-          DATAPOINTS=$(echo "$RESULT" | jq '.Datapoints | length')
-
-          if [ "$DATAPOINTS" -eq "0" ]; then
+          # Check if metrics file is empty or missing
+          if [ "$METRICS" = "{}" ] || [ -z "$METRICS" ]; then
             echo "status=no_session" >> $GITHUB_OUTPUT
             echo "needs_restart=false" >> $GITHUB_OUTPUT
-            echo "📭 No active session detected (no heartbeat metrics)"
-          else
-            LATEST=$(echo "$RESULT" | jq -r '.Datapoints | sort_by(.Timestamp) | last | .Timestamp')
-            echo "Latest heartbeat: $LATEST"
-
-            # Check if heartbeat is stale (configurable via repo variable)
-            STALENESS_THRESHOLD=${{ vars.HEARTBEAT_STALENESS_SECONDS || '300' }}
-            LATEST_EPOCH=$(date -d "$LATEST" +%s)
-            NOW_EPOCH=$(date +%s)
-            AGE_SECONDS=$((NOW_EPOCH - LATEST_EPOCH))
-
-            if [ $AGE_SECONDS -gt $STALENESS_THRESHOLD ]; then
-              echo "status=stale" >> $GITHUB_OUTPUT
-              echo "needs_restart=true" >> $GITHUB_OUTPUT
-              echo "💀 Session heartbeat stale (${AGE_SECONDS}s old) - needs restart"
-            else
-              echo "status=healthy" >> $GITHUB_OUTPUT
-              echo "needs_restart=false" >> $GITHUB_OUTPUT
-              echo "💚 Session healthy (heartbeat ${AGE_SECONDS}s old)"
-            fi
+            echo "No active session detected (no metrics file)"
+            exit 0
           fi
 
-      - name: Get current issue from SSM
+          # Check container status
+          CONTAINER_STATUS=$(ssh -i ~/.ssh/vps_key ${VPS_SSH_USER}@${VPS_HOST} \
+            "docker inspect claude-code-agent --format '{{.State.Status}}' 2>/dev/null || echo 'not_found'")
+
+          echo "Container status: $CONTAINER_STATUS"
+
+          if [ "$CONTAINER_STATUS" != "running" ]; then
+            # Container not running - check if there's an issue that was being built
+            CURRENT_ISSUE=$(echo "$METRICS" | jq -r '.current_issue // empty')
+            if [ -n "$CURRENT_ISSUE" ]; then
+              echo "status=dead" >> $GITHUB_OUTPUT
+              echo "needs_restart=true" >> $GITHUB_OUTPUT
+              echo "Container not running but metrics show issue #$CURRENT_ISSUE - needs restart"
+            else
+              echo "status=no_session" >> $GITHUB_OUTPUT
+              echo "needs_restart=false" >> $GITHUB_OUTPUT
+              echo "No active session (container not running, no current issue)"
+            fi
+            exit 0
+          fi
+
+          # Container is running - check heartbeat freshness
+          LAST_HEARTBEAT=$(echo "$METRICS" | jq -r '.last_heartbeat // empty')
+
+          if [ -z "$LAST_HEARTBEAT" ]; then
+            echo "status=no_heartbeat" >> $GITHUB_OUTPUT
+            echo "needs_restart=false" >> $GITHUB_OUTPUT
+            echo "No heartbeat in metrics (container just started?)"
+            exit 0
+          fi
+
+          # Calculate age in seconds
+          HEARTBEAT_EPOCH=$(date -d "$LAST_HEARTBEAT" +%s 2>/dev/null || echo "0")
+          NOW_EPOCH=$(date +%s)
+          AGE_SECONDS=$((NOW_EPOCH - HEARTBEAT_EPOCH))
+
+          echo "Heartbeat age: ${AGE_SECONDS}s (threshold: ${STALENESS_THRESHOLD}s)"
+
+          if [ $AGE_SECONDS -gt $STALENESS_THRESHOLD ]; then
+            echo "status=stale" >> $GITHUB_OUTPUT
+            echo "needs_restart=true" >> $GITHUB_OUTPUT
+            echo "Session heartbeat stale (${AGE_SECONDS}s old) - needs restart"
+          else
+            echo "status=healthy" >> $GITHUB_OUTPUT
+            echo "needs_restart=false" >> $GITHUB_OUTPUT
+            echo "Session healthy (heartbeat ${AGE_SECONDS}s old)"
+          fi
+
+      - name: Get current issue from metrics
         if: steps.health.outputs.needs_restart == 'true'
         id: state
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
         run: |
-          ISSUE=$(aws ssm get-parameter --name /claude-code/current-issue --query 'Parameter.Value' --output text 2>/dev/null || echo "")
-          if [ -n "$ISSUE" ] && [ "$ISSUE" != "None" ]; then
+          ISSUE=$(ssh -i ~/.ssh/vps_key ${VPS_SSH_USER}@${VPS_HOST} \
+            "cat /opt/agent/metrics/health.json 2>/dev/null | jq -r '.current_issue // empty'")
+
+          if [ -n "$ISSUE" ] && [ "$ISSUE" != "null" ]; then
             echo "issue_number=$ISSUE" >> $GITHUB_OUTPUT
-            echo "📋 Found current issue: #$ISSUE"
+            echo "Found current issue: #$ISSUE"
           else
             echo "issue_number=" >> $GITHUB_OUTPUT
-            echo "⚠️ No current issue found in SSM"
+            echo "No current issue found in metrics"
           fi
 
       - name: Verify issue is open with agent-building label

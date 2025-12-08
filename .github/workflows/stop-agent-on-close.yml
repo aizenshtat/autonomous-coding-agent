@@ -8,11 +8,8 @@ permissions:
   issues: write
   contents: read
 
-env:
-  AWS_REGION: us-west-2
-
 jobs:
-  stop-agent-sessions:
+  stop-agent-container:
     runs-on: ubuntu-latest
     # Only run for issues that had agent activity
     if: |
@@ -21,208 +18,86 @@ jobs:
       contains(github.event.issue.labels.*.name, 'tests-failed')
 
     steps:
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Install dependencies
-        run: pip install PyGithub boto3
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ secrets.AWS_AGENTCORE_ROLE_ARN }}
-          role-duration-seconds: 900
-
-      - name: Stop agent sessions
+      - name: Stop agent container via SSH
         env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GITHUB_SERVER_URL: ${{ github.server_url }}
         run: |
-          python << 'EOF'
-          import json
-          import os
-          import re
-          import boto3
-          from botocore.exceptions import ClientError
-          from github import Github
+          echo "Processing issue #$ISSUE_NUMBER closure"
 
-          # Configuration
-          GITHUB_TOKEN = os.environ['GITHUB_TOKEN']
-          ISSUE_NUMBER = int(os.environ['ISSUE_NUMBER'])
-          GITHUB_REPOSITORY = os.environ['GITHUB_REPOSITORY']
-          GITHUB_RUN_ID = os.environ['GITHUB_RUN_ID']
-          GITHUB_SERVER_URL = os.environ.get('GITHUB_SERVER_URL', 'https://github.com')
-          AGENT_ARN = "arn:aws:bedrock-agentcore:us-west-2:128673662201:runtime/antodo_agent-0UyfaL5NVq"
+          # Check container status
+          CONTAINER_STATUS=$(ssh -i ~/.ssh/vps_key ${VPS_SSH_USER}@${VPS_HOST} \
+            "docker inspect claude-code-agent --format '{{.State.Status}}' 2>/dev/null || echo 'not_found'")
 
+          echo "Container status: $CONTAINER_STATUS"
 
-          def extract_session_ids(comments):
-              """Extract all unique session IDs from issue comments."""
-              session_ids = set()
+          if [ "$CONTAINER_STATUS" = "running" ]; then
+            # Check if this container is working on the closed issue
+            CURRENT_ISSUE=$(ssh -i ~/.ssh/vps_key ${VPS_SSH_USER}@${VPS_HOST} \
+              "cat /opt/agent/metrics/health.json 2>/dev/null | jq -r '.current_issue // empty'" || echo "")
 
-              # Pattern 1: Session ID: `xxx`
-              pattern1 = r'Session ID:\s*`([^`]+)`'
+            if [ "$CURRENT_ISSUE" = "$ISSUE_NUMBER" ]; then
+              echo "Container is working on issue #$ISSUE_NUMBER - stopping..."
 
-              # Pattern 2: | **Session ID** | `xxx` |
-              pattern2 = r'\|\s*\*\*Session ID\*\*\s*\|\s*`([^`]+)`\s*\|'
+              # Stop the container
+              ssh -i ~/.ssh/vps_key ${VPS_SSH_USER}@${VPS_HOST} \
+                "docker stop claude-code-agent && docker rm claude-code-agent" || true
 
-              for comment in comments:
-                  body = comment.body or ""
-                  session_ids.update(re.findall(pattern1, body))
-                  session_ids.update(re.findall(pattern2, body))
+              # Clear the metrics file
+              ssh -i ~/.ssh/vps_key ${VPS_SSH_USER}@${VPS_HOST} \
+                "echo '{}' > /opt/agent/metrics/health.json" || true
 
-              return list(session_ids)
+              echo "Container stopped successfully"
+              STOP_STATUS="stopped"
+            else
+              echo "Container is working on different issue (#$CURRENT_ISSUE) - not stopping"
+              STOP_STATUS="different_issue"
+            fi
+          else
+            echo "Container not running"
+            STOP_STATUS="not_running"
+          fi
 
+          # Post comment to issue
+          WORKFLOW_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
-          def stop_session(session_id):
-              """Attempt to stop a session using boto3 API directly."""
-              result = {
-                  'session_id': session_id,
-                  'status': 'unknown',
-                  'message': ''
-              }
+          if [ "$STOP_STATUS" = "stopped" ]; then
+            COMMENT="**Agent Container Stopped**
 
-              try:
-                  print(f"Stopping session: {session_id}")
+The agent container working on this issue has been stopped.
 
-                  client = boto3.client('bedrock-agentcore', region_name='us-west-2')
+| Field | Value |
+|-------|-------|
+| **Container** | \`claude-code-agent\` |
+| **Action** | Stopped and removed |
+| **Reason** | Issue closed |
 
-                  response = client.stop_runtime_session(
-                      agentRuntimeArn=AGENT_ARN,
-                      runtimeSessionId=session_id
-                  )
+---
+*Automated by GitHub Actions*"
+          elif [ "$STOP_STATUS" = "different_issue" ]; then
+            COMMENT="**Issue Closed**
 
-                  result['status'] = 'stopped'
-                  result['message'] = 'Session stopped successfully'
-                  print(f"  SUCCESS: Session stopped")
+The agent container is currently working on a different issue (#$CURRENT_ISSUE) and was not stopped.
 
-              except ClientError as e:
-                  error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-                  error_message = e.response.get('Error', {}).get('Message', str(e))
+---
+*Automated by GitHub Actions*"
+          else
+            COMMENT="**Issue Closed**
 
-                  if error_code == 'ResourceNotFoundException' or 'not found' in error_message.lower():
-                      result['status'] = 'already_stopped'
-                      result['message'] = 'Session not found (already stopped or expired)'
-                      print(f"  INFO: Session already stopped/expired")
-                  elif error_code == 'AccessDeniedException':
-                      result['status'] = 'error'
-                      result['message'] = f'Permission denied: {error_message[:150]}'
-                      print(f"  ERROR: Permission denied")
-                  else:
-                      result['status'] = 'error'
-                      result['message'] = f'{error_code}: {error_message[:150]}'
-                      print(f"  ERROR: {result['message']}")
+No agent container was running for this issue.
 
-              except Exception as e:
-                  result['status'] = 'error'
-                  result['message'] = str(e)[:200]
-                  print(f"  EXCEPTION: {str(e)}")
+---
+*Automated by GitHub Actions*"
+          fi
 
-              return result
-
-
-          def was_already_processed(issue):
-              """Check if we already posted a stop summary for this issue."""
-              for comment in issue.get_comments():
-                  body = comment.body or ""
-                  if "**Agent Session(s) Stopped**" in body:
-                      return True
-              return False
-
-
-          def generate_comment(results, issue_number):
-              """Generate status comment for the issue."""
-              workflow_url = f"{GITHUB_SERVER_URL}/{GITHUB_REPOSITORY}/actions/runs/{GITHUB_RUN_ID}"
-
-              if not results:
-                  return f"""**Agent Session Stop Summary** (Issue #{issue_number})
-
-          No agent session IDs found in issue comments. No cleanup action taken.
-
-          ---
-          *Automated by [GitHub Actions]({workflow_url})*
-          """
-
-              lines = [
-                  f"**Agent Session(s) Stopped** (Issue #{issue_number})",
-                  "",
-                  "| Session ID | Status | Details |",
-                  "|------------|--------|---------|",
-              ]
-
-              emoji_map = {
-                  'stopped': ':white_check_mark:',
-                  'already_stopped': ':information_source:',
-                  'not_found': ':grey_question:',
-                  'error': ':x:',
-                  'timeout': ':hourglass:',
-              }
-
-              for r in results:
-                  short_id = r['session_id'][:30] + "..." if len(r['session_id']) > 30 else r['session_id']
-                  emoji = emoji_map.get(r['status'], ':question:')
-                  lines.append(f"| `{short_id}` | {emoji} {r['status']} | {r['message']} |")
-
-              stopped_count = sum(1 for r in results if r['status'] == 'stopped')
-              already_count = sum(1 for r in results if r['status'] in ('already_stopped', 'not_found'))
-              error_count = sum(1 for r in results if r['status'] in ('error', 'timeout'))
-
-              lines.extend([
-                  "",
-                  f"**Summary**: {stopped_count} stopped, {already_count} already inactive, {error_count} errors",
-                  "",
-                  "---",
-                  f"*Automated by [GitHub Actions]({workflow_url})*"
-              ])
-
-              return "\n".join(lines)
-
-
-          def main():
-              print(f"Processing issue #{ISSUE_NUMBER} closure")
-              print(f"Repository: {GITHUB_REPOSITORY}")
-              print()
-
-              gh = Github(GITHUB_TOKEN)
-              repo = gh.get_repo(GITHUB_REPOSITORY)
-              issue = repo.get_issue(ISSUE_NUMBER)
-
-              # Check idempotency - avoid duplicate processing
-              if was_already_processed(issue):
-                  print("Issue already processed (found existing stop summary comment)")
-                  return
-
-              # Extract session IDs from all comments
-              comments = list(issue.get_comments())
-              session_ids = extract_session_ids(comments)
-
-              print(f"Found {len(session_ids)} session ID(s) in {len(comments)} comments")
-              for sid in session_ids:
-                  print(f"  - {sid}")
-              print()
-
-              # Stop each session
-              results = []
-              for session_id in session_ids:
-                  result = stop_session(session_id)
-                  results.append(result)
-
-              # Post status comment
-              print()
-              print("Posting status comment...")
-              comment_body = generate_comment(results, ISSUE_NUMBER)
-              issue.create_comment(comment_body)
-              print("Comment posted!")
-              print("Done!")
-
-
-          if __name__ == '__main__':
-              main()
-          EOF
+          gh issue comment $ISSUE_NUMBER --repo $GITHUB_REPOSITORY --body "$COMMENT"
+          echo "Posted status comment to issue"

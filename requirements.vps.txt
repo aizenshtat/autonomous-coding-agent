@@ -1,0 +1,22 @@
+# Core dependencies
+claude-agent-sdk>=0.1.6
+
+# GitHub integration
+PyGithub>=2.8.1
+
+# Async support
+aiofiles>=23.0.0
+
+# Environment
+python-dotenv>=1.0.0
+
+# HTTP requests
+requests>=2.31.0
+
+# Documentation - architecture diagrams (optional)
+# diagrams>=0.23.0
+
+# Note: AWS-specific dependencies removed for VPS deployment:
+# - boto3 (AWS SDK)
+# - bedrock-agentcore (AWS Bedrock framework)
+# - opentelemetry-api, aws-opentelemetry-distro (AWS X-Ray tracing)
