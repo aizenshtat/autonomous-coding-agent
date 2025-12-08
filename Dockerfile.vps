@@ -59,9 +59,15 @@ RUN npx playwright install chromium
 # Create directories
 RUN mkdir -p /app/workspace /app/metrics /app/previews /app/secrets
 
+# Create Claude config directory and pre-configure onboarding
+# This prevents the interactive onboarding prompts in headless mode
+RUN mkdir -p /root/.claude && \
+    echo '{"hasCompletedOnboarding": true}' > /root/.claude.json
+
 # Environment variables
 ENV PYTHONUNBUFFERED=1
 ENV METRICS_FILE=/app/metrics/health.json
+# Note: CLAUDE_CODE_OAUTH_TOKEN should be set at runtime via secrets mount
 
 # Initialize workspace with required files at startup
 CMD ["sh", "-c", "cp -r /app/prompts /app/workspace/ 2>/dev/null || true && cp -r /app/frontend-scaffold-template /app/workspace/ 2>/dev/null || true && python vps_entrypoint.py"]

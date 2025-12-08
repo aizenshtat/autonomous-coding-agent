@@ -225,6 +225,8 @@ class SSHAgentInvoker:
             payload_b64 = base64.b64encode(payload_json.encode()).decode()
 
             # Build docker run command
+            # Note: Authentication supports OAuth token (subscription) OR API key
+            # OAuth token takes precedence if both are present
             docker_cmd = f'''docker run -d \\
                 --name {self.container_name} \\
                 --restart unless-stopped \\
@@ -235,6 +237,7 @@ class SSHAgentInvoker:
                 -e SESSION_ID="{session_id}" \\
                 -e AGENT_PAYLOAD="$(echo '{payload_b64}' | base64 -d)" \\
                 -e GITHUB_TOKEN_FILE=/app/secrets/github_token \\
+                -e CLAUDE_CODE_OAUTH_TOKEN_FILE=/app/secrets/claude_oauth_token \\
                 -e ANTHROPIC_API_KEY_FILE=/app/secrets/anthropic_api_key \\
                 -e METRICS_FILE=/app/metrics/health.json \\
                 {self.image_name} \\

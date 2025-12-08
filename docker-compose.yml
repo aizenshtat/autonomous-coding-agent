@@ -34,6 +34,10 @@ services:
       - PROJECT_ROOT=/app/workspace
       - METRICS_FILE=/app/metrics/health.json
       - GITHUB_TOKEN_FILE=/app/secrets/github_token
+      # Authentication: Use OAuth token (subscription) OR API key, not both
+      # OAuth token is preferred for Pro/Max subscription
+      - CLAUDE_CODE_OAUTH_TOKEN_FILE=/app/secrets/claude_oauth_token
+      # API key is fallback for pay-as-you-go (only used if OAuth token not present)
       - ANTHROPIC_API_KEY_FILE=/app/secrets/anthropic_api_key
       - DEFAULT_MODEL=${DEFAULT_MODEL:-claude-opus-4-5-20251101}
       - SESSION_DURATION_HOURS=7.0

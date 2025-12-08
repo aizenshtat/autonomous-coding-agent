@@ -8,7 +8,11 @@ Receives configuration via environment variables and runs the agent directly.
 Environment Variables:
     AGENT_PAYLOAD: JSON string with issue details (from GitHub Actions via SSH)
     SESSION_ID: Unique session identifier
-    ANTHROPIC_API_KEY or ANTHROPIC_API_KEY_FILE: API key for Claude
+
+    Authentication (choose ONE method):
+    - CLAUDE_CODE_OAUTH_TOKEN or CLAUDE_CODE_OAUTH_TOKEN_FILE: OAuth token for Claude subscription (Pro/Max)
+    - ANTHROPIC_API_KEY or ANTHROPIC_API_KEY_FILE: API key for Claude (pay-as-you-go)
+
     GITHUB_TOKEN or GITHUB_TOKEN_FILE: GitHub token for operations
     METRICS_FILE: Path to local metrics JSON file (default: /app/metrics/health.json)
     SESSION_DURATION_HOURS: Maximum session duration (default: 7.0)
@@ -119,6 +123,15 @@ def get_anthropic_api_key() -> Optional[str]:
         "anthropic_api_key",
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_API_KEY_FILE"
+    )
+
+
+def get_claude_oauth_token() -> Optional[str]:
+    """Get Claude OAuth token from environment or file (for subscription auth)."""
+    return get_secret_from_file_or_env(
+        "claude_oauth_token",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "CLAUDE_CODE_OAUTH_TOKEN_FILE"
     )
 
 
@@ -306,11 +319,20 @@ def read_session_state(workspace_dir: Path) -> Optional[Dict]:
 
 def run_agent(
     build_dir: Path,
-    api_key: str,
+    auth_token: str,
+    auth_type: str = "api_key",
     is_enhancement: bool = False,
     feature_request_path: Optional[Path] = None
 ):
-    """Run the Claude Code agent."""
+    """Run the Claude Code agent.
+
+    Args:
+        build_dir: Working directory for the agent
+        auth_token: Authentication token (API key or OAuth token)
+        auth_type: "api_key" for ANTHROPIC_API_KEY, "oauth" for CLAUDE_CODE_OAUTH_TOKEN
+        is_enhancement: Whether this is an enhancement session
+        feature_request_path: Path to feature request file for enhancement mode
+    """
     global agent_process
 
     model = os.environ.get("DEFAULT_MODEL", "claude-opus-4-5-20251101")
@@ -335,9 +357,23 @@ def run_agent(
 
     print(f"Running agent: {' '.join(cmd)}")
     print(f"Working directory: {build_dir}")
+    print(f"Authentication: {auth_type}")
 
     env = os.environ.copy()
-    env['ANTHROPIC_API_KEY'] = api_key
+
+    # Set authentication based on type
+    if auth_type == "oauth":
+        # Use OAuth token for subscription-based authentication
+        env['CLAUDE_CODE_OAUTH_TOKEN'] = auth_token
+        # Ensure API key is NOT set (it would override OAuth)
+        env.pop('ANTHROPIC_API_KEY', None)
+        print("Using Claude subscription (OAuth token)")
+    else:
+        # Use API key for pay-as-you-go authentication
+        env['ANTHROPIC_API_KEY'] = auth_token
+        # Ensure OAuth token is NOT set
+        env.pop('CLAUDE_CODE_OAUTH_TOKEN', None)
+        print("Using Anthropic API key")
 
     agent_process = subprocess.Popen(
         cmd,
@@ -431,10 +467,22 @@ def main():
     print(f"Session ID: {session_id}")
     print(f"Payload: {json.dumps(payload, indent=2)}")
 
-    # Get credentials
+    # Get credentials - prefer OAuth token (subscription) over API key
+    oauth_token = get_claude_oauth_token()
     api_key = get_anthropic_api_key()
-    if not api_key:
-        print("Error: Anthropic API key not found")
+
+    if oauth_token:
+        auth_token = oauth_token
+        auth_type = "oauth"
+        print("Found Claude OAuth token (subscription authentication)")
+    elif api_key:
+        auth_token = api_key
+        auth_type = "api_key"
+        print("Found Anthropic API key (pay-as-you-go authentication)")
+    else:
+        print("Error: No authentication found")
+        print("  Set CLAUDE_CODE_OAUTH_TOKEN for subscription auth")
+        print("  Or ANTHROPIC_API_KEY for API key auth")
         return 1
 
     github_token = get_github_token()
@@ -531,7 +579,8 @@ Commits should reference this issue: `Ref: #{issue_number}`
         # Run the agent
         exit_code = run_agent(
             build_dir=build_dir,
-            api_key=api_key,
+            auth_token=auth_token,
+            auth_type=auth_type,
             is_enhancement=is_enhancement,
             feature_request_path=feature_request_path if is_enhancement else None
         )

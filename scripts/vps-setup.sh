@@ -134,10 +134,20 @@ fi
 
 # Create placeholder secrets files
 echo -e "${YELLOW}Creating placeholder secrets files...${NC}"
+
+# Claude OAuth token (for Pro/Max subscription) - PREFERRED
+if [ ! -f /opt/agent/secrets/claude_oauth_token ]; then
+    echo "REPLACE_WITH_YOUR_OAUTH_TOKEN" > /opt/agent/secrets/claude_oauth_token
+    chmod 600 /opt/agent/secrets/claude_oauth_token
+fi
+
+# Anthropic API key (for pay-as-you-go) - FALLBACK
 if [ ! -f /opt/agent/secrets/anthropic_api_key ]; then
     echo "REPLACE_WITH_YOUR_ANTHROPIC_API_KEY" > /opt/agent/secrets/anthropic_api_key
     chmod 600 /opt/agent/secrets/anthropic_api_key
 fi
+
+# GitHub token
 if [ ! -f /opt/agent/secrets/github_token ]; then
     echo "REPLACE_WITH_YOUR_GITHUB_TOKEN" > /opt/agent/secrets/github_token
     chmod 600 /opt/agent/secrets/github_token
@@ -155,8 +165,17 @@ echo ""
 echo "1. Add your SSH public key for GitHub Actions:"
 echo "   echo 'YOUR_PUBLIC_KEY' >> /home/deploy/.ssh/authorized_keys"
 echo ""
-echo "2. Add your secrets:"
+echo "2. Add your secrets (choose ONE authentication method):"
+echo ""
+echo "   ${GREEN}Option A: Claude Subscription (Pro/Max) - RECOMMENDED${NC}"
+echo "   Run 'claude setup-token' on your local machine to generate an OAuth token,"
+echo "   then save it to the VPS:"
+echo "   echo 'sk-ant-oat01-...' > /opt/agent/secrets/claude_oauth_token"
+echo ""
+echo "   ${YELLOW}Option B: Anthropic API Key (pay-as-you-go)${NC}"
 echo "   echo 'sk-ant-...' > /opt/agent/secrets/anthropic_api_key"
+echo ""
+echo "   GitHub token (always required):"
 echo "   echo 'ghp_...' > /opt/agent/secrets/github_token"
 echo ""
 echo "3. Configure SSL certificate (replace YOUR_DOMAIN):"
