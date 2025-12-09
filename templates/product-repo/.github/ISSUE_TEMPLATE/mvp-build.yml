@@ -13,12 +13,12 @@ body:
         ### How it works
         1. Create this issue (just click "Create" below)
         2. Add a 🚀 reaction to approve it
-        3. The agent automatically starts building using `prompts/canopy/BUILD_PLAN.md`
+        3. The agent automatically starts building using `specs/canopy/BUILD_PLAN.md`
         4. Progress updates and screenshots will be posted to this issue
         5. Code is committed to the `agent-runtime` branch
 
         ### Architecture details
-        - **Specification:** The agent reads from `prompts/canopy/BUILD_PLAN.md` (hardcoded)
+        - **Specification:** The agent reads from `specs/canopy/BUILD_PLAN.md` (hardcoded)
         - **Issue queue:** Approved issues are synced to `human_backlog.json` on EFS
         - **Polling:** The agent pulls from `human_backlog.json` to find the next issue to work on
         - **Branch:** All work is committed to the `agent-runtime` branch
