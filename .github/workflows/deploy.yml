@@ -1,0 +1,115 @@
+name: Deploy Agent Infrastructure
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  deploy:
+    name: Deploy Agent to VPS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Copy files to VPS
+        run: |
+          rsync -avz --delete \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude '__pycache__' \
+            --exclude '*.pyc' \
+            --exclude '.env' \
+            --exclude 'infrastructure' \
+            --exclude 'e2e-tests' \
+            ./ ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:~/autonomous-agent/
+
+      - name: Create secrets on VPS
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH'
+            mkdir -p /opt/agent/secrets
+
+            # Write secrets (only if provided)
+            if [ -n "$ANTHROPIC_API_KEY" ]; then
+              echo "$ANTHROPIC_API_KEY" > /opt/agent/secrets/anthropic_api_key
+            fi
+            if [ -n "$CLAUDE_OAUTH_TOKEN" ]; then
+              echo "$CLAUDE_OAUTH_TOKEN" > /opt/agent/secrets/claude_oauth_token
+            fi
+            if [ -n "$GITHUB_TOKEN_SECRET" ]; then
+              echo "$GITHUB_TOKEN_SECRET" > /opt/agent/secrets/github_token
+            fi
+
+            chmod 600 /opt/agent/secrets/*
+          ENDSSH
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_OAUTH_TOKEN: ${{ secrets.CLAUDE_OAUTH_TOKEN }}
+          GITHUB_TOKEN_SECRET: ${{ secrets.AGENT_GITHUB_TOKEN }}
+
+      - name: Deploy on VPS
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH'
+            cd ~/autonomous-agent
+
+            # Make deploy script executable
+            chmod +x deployment/deploy.sh
+
+            # Run deployment
+            ./deployment/deploy.sh
+          ENDSSH
+
+      - name: Verify deployment
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH'
+            echo "Checking container status..."
+
+            # Check if image was built
+            if docker images | grep -q "claude-code-agent"; then
+              echo "✅ Docker image exists"
+            else
+              echo "❌ Docker image not found"
+              exit 1
+            fi
+
+            # Check metrics directory
+            if [ -d "/opt/agent/metrics" ]; then
+              echo "✅ Metrics directory exists"
+            else
+              echo "❌ Metrics directory not found"
+            fi
+
+            # Check secrets
+            if [ -f "/opt/agent/secrets/github_token" ]; then
+              echo "✅ GitHub token configured"
+            else
+              echo "⚠️ GitHub token not found"
+            fi
+
+            if [ -f "/opt/agent/secrets/anthropic_api_key" ] || [ -f "/opt/agent/secrets/claude_oauth_token" ]; then
+              echo "✅ Claude authentication configured"
+            else
+              echo "❌ No Claude authentication found"
+              exit 1
+            fi
+
+            echo ""
+            echo "✅ Deployment successful!"
+            echo "Agent is ready to be triggered via GitHub Issues"
+          ENDSSH
+
+      - name: Deployment status
+        run: echo "Deployment completed successfully!"

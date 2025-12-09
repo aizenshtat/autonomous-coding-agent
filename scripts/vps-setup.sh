@@ -83,18 +83,22 @@ fi
 
 # Create agent directories
 echo -e "${YELLOW}Creating agent directories...${NC}"
-mkdir -p /opt/agent/{data,metrics,previews,secrets,logs}
+mkdir -p /opt/agent/{data,metrics,previews,secrets,logs,workspace}
+mkdir -p ~/autonomous-agent
 chmod 755 /opt/agent
-chmod 755 /opt/agent/{data,metrics,previews,logs}
+chmod 755 /opt/agent/{data,metrics,previews,logs,workspace}
 chmod 700 /opt/agent/secrets
 
 echo -e "${GREEN}Created directory structure:${NC}"
 echo "  /opt/agent/"
-echo "  ├── data/      - Agent workspace (git repos)"
+echo "  ├── data/      - Tests and state files"
 echo "  ├── metrics/   - Health metrics (JSON)"
 echo "  ├── previews/  - Static preview builds"
 echo "  ├── secrets/   - API keys (restricted)"
-echo "  └── logs/      - Application logs"
+echo "  ├── logs/      - Application logs"
+echo "  └── workspace/ - Agent working directory"
+echo ""
+echo "  ~/autonomous-agent/ - Agent code (deployed via CI/CD)"
 
 # Create deploy user for GitHub Actions SSH access
 if ! id "deploy" &>/dev/null; then
@@ -186,12 +190,15 @@ echo "   cp nginx/agent-previews.conf /etc/nginx/sites-available/"
 echo "   ln -s /etc/nginx/sites-available/agent-previews.conf /etc/nginx/sites-enabled/"
 echo "   nginx -t && systemctl reload nginx"
 echo ""
-echo "5. Build and test the Docker image:"
-echo "   docker build -f Dockerfile.vps -t claude-code-agent:latest ."
-echo ""
-echo "6. Configure GitHub repository secrets:"
+echo "5. Configure GitHub repository secrets:"
 echo "   - VPS_HOST: $(hostname -I | awk '{print $1}')"
 echo "   - VPS_SSH_USER: deploy"
 echo "   - VPS_SSH_KEY: (your private key)"
+echo "   - ANTHROPIC_API_KEY: (your API key)"
+echo "   - AGENT_GITHUB_TOKEN: (GitHub PAT for agent operations)"
+echo ""
+echo "6. Push to main branch to trigger deployment:"
+echo "   git push origin main"
+echo "   (This will rsync code and build Docker image)"
 echo ""
 echo -e "${GREEN}Done!${NC}"
