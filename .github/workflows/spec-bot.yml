@@ -1,0 +1,302 @@
+# Spec Bot - Feature Request Handler for Product Repositories
+#
+# This workflow handles user feature requests in product repositories.
+# It refines specifications through conversation and generates tests.
+#
+# Flow:
+# 1. User creates issue with feature request description
+# 2. Bot generates XML spec draft, posts as comment
+# 3. User iterates (replies with changes)
+# 4. User approves (thumbs up reaction or "approved"/"looks good")
+# 5. Bot generates tests with `feature` and `issueNumber` fields
+# 6. Bot SSHs to VPS, prepends tests to tests.json
+# 7. Bot comments with queue position
+#
+# NOTE: This workflow should be copied to each product repository
+# (e.g., yourorg/canopy) where you want to accept feature requests.
+
+name: Spec Bot
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  contents: read
+
+env:
+  SPEC_BOT_LABEL: "spec-draft"
+  APPROVED_LABEL: "spec-approved"
+  QUEUED_LABEL: "agent-building"
+
+jobs:
+  # Handle new issue - generate initial spec draft
+  new-issue:
+    if: github.event_name == 'issues' && github.event.action == 'opened'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check if feature request
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          # Skip issues that are auto-created by the agent (MVP features)
+          LABELS=$(gh issue view $ISSUE_NUMBER -R $GITHUB_REPOSITORY --json labels -q '.labels[].name')
+
+          if echo "$LABELS" | grep -q "mvp-build"; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Skipping MVP issue - created by agent"
+            exit 0
+          fi
+
+          echo "skip=false" >> $GITHUB_OUTPUT
+
+      - name: Generate spec draft
+        if: steps.check.outputs.skip != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          # Call Claude API to generate spec draft
+          SPEC_PROMPT=$(cat << 'PROMPT_EOF'
+          You are a product specification writer. The user has submitted a feature request.
+
+          Generate a concise XML specification for this feature that can be used to generate tests.
+
+          Your XML spec should include:
+          - <feature_name> - A kebab-case identifier (e.g., "dark-mode", "user-preferences")
+          - <summary> - One sentence description
+          - <user_stories> - 2-4 user stories in "As a... I want... So that..." format
+          - <acceptance_criteria> - Specific, testable criteria
+          - <ui_components> - List of UI elements needed (if applicable)
+          - <api_endpoints> - List of API changes needed (if applicable)
+
+          Keep it focused and actionable. This will be used to generate automated tests.
+
+          FEATURE REQUEST:
+          Title: ${ISSUE_TITLE}
+
+          Description:
+          ${ISSUE_BODY}
+
+          Respond with ONLY the XML specification, no other text.
+          PROMPT_EOF
+          )
+
+          # Escape for JSON
+          ESCAPED_PROMPT=$(echo "$SPEC_PROMPT" | jq -Rs .)
+
+          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "{
+              \"model\": \"claude-sonnet-4-20250514\",
+              \"max_tokens\": 2000,
+              \"messages\": [{
+                \"role\": \"user\",
+                \"content\": $ESCAPED_PROMPT
+              }]
+            }")
+
+          # Extract the text response
+          SPEC=$(echo "$RESPONSE" | jq -r '.content[0].text // empty')
+
+          if [ -z "$SPEC" ]; then
+            echo "Failed to generate spec"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+          # Post comment with spec draft
+          COMMENT_BODY=$(cat << EOF
+          ## Draft Specification
+
+          I've analyzed your feature request and created this draft specification:
+
+          \`\`\`xml
+          $SPEC
+          \`\`\`
+
+          ### Next Steps
+
+          1. **Review** the specification above
+          2. **Reply** with any changes you'd like (e.g., "add a settings toggle" or "remove the API endpoint")
+          3. **Approve** when satisfied by:
+             - Adding a :+1: reaction to this comment, OR
+             - Replying with "approved" or "looks good"
+
+          Once approved, I'll generate tests and queue them for the agent to implement.
+          EOF
+          )
+
+          gh issue comment $ISSUE_NUMBER -R $GITHUB_REPOSITORY --body "$COMMENT_BODY"
+          gh issue edit $ISSUE_NUMBER -R $GITHUB_REPOSITORY --add-label "${{ env.SPEC_BOT_LABEL }}"
+
+  # Handle comments - either refine spec or process approval
+  handle-comment:
+    if: github.event_name == 'issue_comment' && github.event.action == 'created'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check if spec refinement or approval
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+        run: |
+          # Skip bot's own comments
+          if [ "$COMMENT_AUTHOR" = "github-actions[bot]" ]; then
+            echo "action=skip" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check if issue has spec-draft label
+          LABELS=$(gh issue view $ISSUE_NUMBER -R $GITHUB_REPOSITORY --json labels -q '.labels[].name')
+
+          if ! echo "$LABELS" | grep -q "${{ env.SPEC_BOT_LABEL }}"; then
+            echo "action=skip" >> $GITHUB_OUTPUT
+            echo "Issue doesn't have spec-draft label"
+            exit 0
+          fi
+
+          # Check if already approved
+          if echo "$LABELS" | grep -q "${{ env.APPROVED_LABEL }}"; then
+            echo "action=skip" >> $GITHUB_OUTPUT
+            echo "Issue already approved"
+            exit 0
+          fi
+
+          # Check if this is an approval
+          LOWER_BODY=$(echo "$COMMENT_BODY" | tr '[:upper:]' '[:lower:]')
+          if echo "$LOWER_BODY" | grep -qE "(approved|looks good|lgtm|ship it)"; then
+            echo "action=approve" >> $GITHUB_OUTPUT
+          else
+            echo "action=refine" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Refine specification
+        if: steps.check.outputs.action == 'refine'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          USER_FEEDBACK: ${{ github.event.comment.body }}
+        run: |
+          # Get the previous spec from issue comments
+          COMMENTS=$(gh issue view $ISSUE_NUMBER -R $GITHUB_REPOSITORY --json comments -q '.comments')
+
+          # Find the most recent spec (from bot comments)
+          PREVIOUS_SPEC=$(echo "$COMMENTS" | jq -r '
+            [.[] | select(.author.login == "github-actions[bot]") | .body] |
+            last // empty' |
+            grep -oP '(?<=```xml\n)[\s\S]*?(?=\n```)' || echo "")
+
+          if [ -z "$PREVIOUS_SPEC" ]; then
+            echo "No previous spec found"
+            exit 0
+          fi
+
+          REFINE_PROMPT=$(cat << PROMPT_EOF
+          You are refining a feature specification based on user feedback.
+
+          CURRENT SPEC:
+          $PREVIOUS_SPEC
+
+          USER FEEDBACK:
+          $USER_FEEDBACK
+
+          Update the XML specification to incorporate the user's feedback.
+          Keep the same structure but modify content as requested.
+          Respond with ONLY the updated XML specification, no other text.
+          PROMPT_EOF
+          )
+
+          ESCAPED_PROMPT=$(echo "$REFINE_PROMPT" | jq -Rs .)
+
+          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "{
+              \"model\": \"claude-sonnet-4-20250514\",
+              \"max_tokens\": 2000,
+              \"messages\": [{
+                \"role\": \"user\",
+                \"content\": $ESCAPED_PROMPT
+              }]
+            }")
+
+          SPEC=$(echo "$RESPONSE" | jq -r '.content[0].text // empty')
+
+          if [ -z "$SPEC" ]; then
+            echo "Failed to refine spec"
+            exit 1
+          fi
+
+          COMMENT_BODY=$(cat << EOF
+          ## Updated Specification
+
+          I've updated the specification based on your feedback:
+
+          \`\`\`xml
+          $SPEC
+          \`\`\`
+
+          Reply with more changes or approve when ready (:+1: or "approved").
+          EOF
+          )
+
+          gh issue comment $ISSUE_NUMBER -R $GITHUB_REPOSITORY --body "$COMMENT_BODY"
+
+      - name: Checkout for test generation
+        if: steps.check.outputs.action == 'approve'
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: steps.check.outputs.action == 'approve'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        if: steps.check.outputs.action == 'approve'
+        run: |
+          pip install paramiko anthropic
+
+      - name: Generate tests and queue
+        if: steps.check.outputs.action == 'approve'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          python .github/scripts/generate_tests.py \
+            --issue-number $ISSUE_NUMBER \
+            --repo $GITHUB_REPOSITORY
+
+  # Handle thumbs up reaction on bot comments (alternative approval method)
+  handle-reaction:
+    if: github.event_name == 'issue_comment' && github.event.action == 'created'
+    runs-on: ubuntu-latest
+
+    steps:
+      # This would need to be triggered differently - reactions don't trigger workflows
+      # For now, users can approve via comment text
+      - name: Note about reactions
+        run: |
+          echo "Reaction-based approval requires webhook or polling"
+          echo "Users should use text-based approval: 'approved' or 'looks good'"

@@ -66,7 +66,6 @@ except ImportError:
 AGENT_BRANCH = "agent-runtime"
 EFS_BASE_PATH = Path("/app/workspace")
 AGENT_RUNTIME_DIR = EFS_BASE_PATH / "agent-runtime"
-BACKLOG_FILE_PATH = AGENT_RUNTIME_DIR / "human_backlog.json"
 GITHUB_TOKEN_FILE = "/tmp/github_token.txt"
 COMMITS_QUEUE_FILE = "/tmp/commits_queue.txt"
 
@@ -317,6 +316,168 @@ def read_session_state(workspace_dir: Path) -> Optional[Dict]:
         return None
 
 
+def run_agent_with_monitoring(
+    build_dir: Path,
+    auth_token: str,
+    auth_type: str,
+    github_repo: str,
+    github_token: str,
+    is_enhancement: bool = False,
+    feature_request_path: Optional[Path] = None,
+    progress_interval: int = 120
+) -> int:
+    """Run the Claude Code agent with progress monitoring.
+
+    This function runs the agent in continuous mode and monitors tests.json
+    for progress, posting updates to feature issues as tests pass.
+
+    Args:
+        build_dir: Working directory for the agent
+        auth_token: Authentication token (API key or OAuth token)
+        auth_type: "api_key" for ANTHROPIC_API_KEY, "oauth" for CLAUDE_CODE_OAUTH_TOKEN
+        github_repo: Repository in format "owner/repo"
+        github_token: GitHub token for posting progress
+        is_enhancement: Whether this is an enhancement session
+        feature_request_path: Path to feature request file for enhancement mode
+        progress_interval: Seconds between progress checks (default: 120)
+
+    Returns:
+        Agent exit code
+    """
+    global agent_process
+
+    model = os.environ.get("DEFAULT_MODEL", "claude-opus-4-5-20251101")
+    project_name = os.environ.get("PROJECT_NAME", "canopy")
+
+    tests_json_path = build_dir / "generated-app" / "tests.json"
+    screenshots_dir = build_dir / "generated-app" / "screenshots"
+
+    # Determine if this is initialization (no tests.json) or continuation
+    is_initialization = not tests_json_path.exists()
+
+    if is_enhancement and feature_request_path:
+        cmd = [
+            "python", "/app/claude_code.py",
+            "--enhance-feature", str(feature_request_path),
+            "--existing-codebase", str(build_dir / "generated-app"),
+            "--model", model,
+            "--skip-git-init"
+        ]
+    elif is_initialization:
+        # First run - will create tests.json
+        cmd = [
+            "python", "/app/claude_code.py",
+            "--project", project_name,
+            "--model", model,
+            "--output-dir", str(build_dir / "generated-app"),
+            "--skip-git-init"
+        ]
+    else:
+        # Continuation - don't pass --project to avoid re-initializing
+        cmd = [
+            "python", "/app/claude_code.py",
+            "--model", model,
+            "--output-dir", str(build_dir / "generated-app"),
+            "--skip-git-init"
+        ]
+
+    print(f"Running agent: {' '.join(cmd)}")
+    print(f"Working directory: {build_dir}")
+    print(f"Authentication: {auth_type}")
+    print(f"Mode: {'initialization' if is_initialization else 'continuation'}")
+
+    env = os.environ.copy()
+
+    # Set authentication based on type
+    if auth_type == "oauth":
+        env['CLAUDE_CODE_OAUTH_TOKEN'] = auth_token
+        env.pop('ANTHROPIC_API_KEY', None)
+        print("Using Claude subscription (OAuth token)")
+    else:
+        env['ANTHROPIC_API_KEY'] = auth_token
+        env.pop('CLAUDE_CODE_OAUTH_TOKEN', None)
+        print("Using Anthropic API key")
+
+    agent_process = subprocess.Popen(
+        cmd,
+        cwd=str(build_dir),
+        env=env
+    )
+
+    print(f"Agent started (PID: {agent_process.pid})")
+
+    # Initialize tracking state
+    last_progress: Dict[int, int] = {}
+    feature_issues_created = False
+    feature_to_issue: Dict[str, int] = {}
+
+    # Monitoring loop - runs while agent is active
+    last_check = time.time()
+
+    while agent_process.poll() is None:
+        time.sleep(10)  # Check every 10 seconds
+
+        # Only do progress updates at specified interval
+        if time.time() - last_check < progress_interval:
+            continue
+
+        last_check = time.time()
+
+        # Wait for tests.json to exist
+        if not tests_json_path.exists():
+            print("Waiting for tests.json to be created...")
+            continue
+
+        try:
+            tests = json.loads(tests_json_path.read_text())
+        except Exception as e:
+            print(f"Error reading tests.json: {e}")
+            continue
+
+        # Create feature issues on first run (after tests.json is created)
+        if not feature_issues_created and tests:
+            print("Creating feature issues from tests.json...")
+            features = extract_features_from_tests(tests_json_path)
+
+            if features:
+                feature_to_issue = create_feature_issues(
+                    github_repo=github_repo,
+                    github_token=github_token,
+                    features=features
+                )
+
+                if feature_to_issue:
+                    assign_issue_numbers_to_tests(tests_json_path, feature_to_issue)
+                    # Reload tests with issue numbers
+                    tests = json.loads(tests_json_path.read_text())
+
+            feature_issues_created = True
+            print(f"Created {len(feature_to_issue)} feature issues")
+
+        # Post progress updates to feature issues
+        if tests and feature_to_issue:
+            last_progress = post_feature_progress(
+                tests=tests,
+                github_repo=github_repo,
+                github_token=github_token,
+                last_progress=last_progress
+            )
+
+            # Post screenshots for each feature issue
+            for feature_id, issue_num in feature_to_issue.items():
+                global uploaded_screenshots
+                uploaded_screenshots = post_screenshots_to_issue(
+                    screenshots_dir=screenshots_dir,
+                    issue_number=issue_num,
+                    github_repo=github_repo,
+                    github_token=github_token,
+                    uploaded_hashes=uploaded_screenshots
+                )
+
+    print(f"Agent completed with exit code: {agent_process.returncode}")
+    return agent_process.returncode
+
+
 def run_agent(
     build_dir: Path,
     auth_token: str,
@@ -324,7 +485,7 @@ def run_agent(
     is_enhancement: bool = False,
     feature_request_path: Optional[Path] = None
 ):
-    """Run the Claude Code agent.
+    """Run the Claude Code agent (simple mode without monitoring).
 
     Args:
         build_dir: Working directory for the agent
@@ -444,6 +605,394 @@ Branch: [`{branch_name}`]({branch_url})
     except Exception as e:
         print(f"Warning: Failed to post commits to issue: {e}")
         return False
+
+
+# =============================================================================
+# Product Repository Management
+# =============================================================================
+
+def create_product_repo(
+    project_name: str,
+    github_owner: str,
+    github_token: str,
+    description: str = ""
+) -> Optional[str]:
+    """Create a new GitHub repo for the product.
+
+    Args:
+        project_name: Name for the new repository
+        github_owner: GitHub organization or username
+        github_token: GitHub token with repo creation permissions
+        description: Optional repository description
+
+    Returns:
+        Clone URL if successful, None otherwise
+    """
+    try:
+        from github import Github
+
+        gh = Github(github_token)
+
+        # Try org first, fall back to user
+        try:
+            owner = gh.get_organization(github_owner)
+            print(f"Creating repo in organization: {github_owner}")
+        except Exception:
+            owner = gh.get_user()
+            print(f"Creating repo for user: {owner.login}")
+
+        # Check if repo already exists
+        try:
+            existing = owner.get_repo(project_name)
+            print(f"Repository {github_owner}/{project_name} already exists")
+            return existing.clone_url
+        except Exception:
+            pass
+
+        # Create new repo
+        repo = owner.create_repo(
+            name=project_name,
+            description=description or f"Generated by autonomous agent",
+            private=True,
+            auto_init=True,
+            has_issues=True,
+            has_projects=False,
+            has_wiki=False,
+        )
+
+        # Set up labels for feature tracking
+        default_labels = [
+            ("mvp-build", "FBCA04", "Initial MVP build from BUILD_PLAN.md"),
+            ("agent-building", "1D76DB", "Agent is currently working on this"),
+            ("agent-complete", "0E8A16", "Agent has completed this feature"),
+        ]
+
+        for label_name, color, label_desc in default_labels:
+            try:
+                repo.create_label(name=label_name, color=color, description=label_desc)
+            except Exception:
+                pass  # Label may already exist
+
+        print(f"Created repository: {repo.html_url}")
+        return repo.clone_url
+
+    except Exception as e:
+        print(f"Error creating product repo: {e}")
+        return None
+
+
+# =============================================================================
+# Feature Issue Management
+# =============================================================================
+
+def extract_features_from_tests(tests_json_path: Path) -> List[str]:
+    """Extract unique feature IDs from generated tests.json.
+
+    Args:
+        tests_json_path: Path to tests.json file
+
+    Returns:
+        List of unique feature IDs in order they appear
+    """
+    if not tests_json_path.exists():
+        return []
+
+    try:
+        tests = json.loads(tests_json_path.read_text())
+        features = []
+        seen = set()
+
+        for test in tests:
+            feature = test.get('feature')
+            if feature and feature not in seen:
+                features.append(feature)
+                seen.add(feature)
+
+        return features
+    except Exception as e:
+        print(f"Error extracting features from tests: {e}")
+        return []
+
+
+def create_feature_issues(
+    github_repo: str,
+    github_token: str,
+    features: List[str]
+) -> Dict[str, int]:
+    """Create GitHub issues for each feature extracted from tests.
+
+    Args:
+        github_repo: Repository in format "owner/repo"
+        github_token: GitHub token
+        features: List of feature IDs to create issues for
+
+    Returns:
+        Dictionary mapping feature_id -> issue_number
+    """
+    try:
+        from github import Github
+
+        gh = Github(github_token)
+        repo = gh.get_repo(github_repo)
+        feature_to_issue = {}
+
+        for feature_id in features:
+            # Check if issue already exists for this feature
+            label_name = f'feature:{feature_id}'
+            existing = list(repo.get_issues(state='all', labels=[label_name]))
+            if existing:
+                feature_to_issue[feature_id] = existing[0].number
+                print(f"Feature '{feature_id}' already has issue #{existing[0].number}")
+                continue
+
+            # Create label for this feature
+            try:
+                repo.create_label(
+                    name=label_name,
+                    color='C5DEF5',
+                    description=f'Tests for {feature_id} feature'
+                )
+            except Exception:
+                pass  # Label may already exist
+
+            # Create issue with human-readable title
+            title = f"MVP: {feature_id.replace('-', ' ').replace('_', ' ').title()}"
+            body = f"""## {title}
+
+### Feature ID
+`{feature_id}`
+
+### Test Progress
+*Progress updates will be posted automatically as tests pass.*
+
+### Screenshots
+*Screenshots will be posted as tests are verified.*
+
+---
+*Auto-created by agent initialization*
+"""
+            issue = repo.create_issue(
+                title=title,
+                body=body,
+                labels=['mvp-build', 'agent-building', label_name]
+            )
+            feature_to_issue[feature_id] = issue.number
+            print(f"Created issue #{issue.number} for feature '{feature_id}'")
+
+        return feature_to_issue
+
+    except Exception as e:
+        print(f"Error creating feature issues: {e}")
+        return {}
+
+
+def assign_issue_numbers_to_tests(
+    tests_json_path: Path,
+    feature_to_issue: Dict[str, int]
+) -> bool:
+    """Add issueNumber field to each test based on its feature.
+
+    Args:
+        tests_json_path: Path to tests.json file
+        feature_to_issue: Mapping of feature_id -> issue_number
+
+    Returns:
+        True if successful
+    """
+    try:
+        tests = json.loads(tests_json_path.read_text())
+
+        for test in tests:
+            feature = test.get('feature')
+            if feature and feature in feature_to_issue:
+                test['issueNumber'] = feature_to_issue[feature]
+
+        tests_json_path.write_text(json.dumps(tests, indent=2))
+        print(f"Assigned issue numbers to {len(tests)} tests")
+        return True
+
+    except Exception as e:
+        print(f"Error assigning issue numbers to tests: {e}")
+        return False
+
+
+# =============================================================================
+# Progress Tracking
+# =============================================================================
+
+def post_feature_progress(
+    tests: List[Dict],
+    github_repo: str,
+    github_token: str,
+    last_progress: Dict[int, int]
+) -> Dict[int, int]:
+    """Post progress updates to feature issues, close when complete.
+
+    Args:
+        tests: List of test objects from tests.json
+        github_repo: Repository in format "owner/repo"
+        github_token: GitHub token
+        last_progress: Dict mapping issue_number -> last_passed_count
+
+    Returns:
+        Updated last_progress dict
+    """
+    from collections import defaultdict
+
+    try:
+        from github import Github
+
+        # Group tests by issue number
+        by_issue = defaultdict(list)
+        for test in tests:
+            issue_num = test.get('issueNumber')
+            if issue_num:
+                by_issue[issue_num].append(test)
+
+        gh = Github(github_token)
+        repo = gh.get_repo(github_repo)
+
+        for issue_num, feature_tests in by_issue.items():
+            passed = sum(1 for t in feature_tests if t.get('passes'))
+            total = len(feature_tests)
+
+            # Skip if no change
+            if last_progress.get(issue_num) == passed:
+                continue
+
+            last_progress[issue_num] = passed
+            issue = repo.get_issue(issue_num)
+
+            if passed == total and total > 0:
+                # Feature complete!
+                issue.create_comment("✅ **All tests passing!** Feature complete.")
+                issue.edit(state='closed')
+
+                # Update labels
+                current_labels = [l.name for l in issue.labels]
+                new_labels = [l for l in current_labels if l != 'agent-building']
+                if 'agent-complete' not in new_labels:
+                    new_labels.append('agent-complete')
+                issue.set_labels(*new_labels)
+
+                print(f"Feature complete! Closed issue #{issue_num}")
+            else:
+                # Progress update
+                pct = (passed / total * 100) if total > 0 else 0
+                bar_filled = int(pct / 5)
+                bar = '█' * bar_filled + '░' * (20 - bar_filled)
+
+                timestamp = datetime.now(timezone.utc).strftime("%H:%M UTC")
+                comment = f"**Progress Update** ({timestamp})\n\n"
+                comment += f"`[{bar}]` {passed}/{total} tests ({pct:.0f}%)"
+
+                issue.create_comment(comment)
+                print(f"Posted progress to issue #{issue_num}: {passed}/{total}")
+
+        return last_progress
+
+    except Exception as e:
+        print(f"Error posting feature progress: {e}")
+        return last_progress
+
+
+def post_screenshots_to_issue(
+    screenshots_dir: Path,
+    issue_number: int,
+    github_repo: str,
+    github_token: str,
+    uploaded_hashes: set
+) -> set:
+    """Post new screenshots to GitHub issue.
+
+    Args:
+        screenshots_dir: Directory containing screenshots
+        issue_number: GitHub issue number
+        github_repo: Repository in format "owner/repo"
+        github_token: GitHub token
+        uploaded_hashes: Set of already-uploaded screenshot hashes
+
+    Returns:
+        Updated set of uploaded hashes
+    """
+    if not screenshots_dir.exists():
+        return uploaded_hashes
+
+    try:
+        from github import Github
+
+        # Find new screenshots
+        new_screenshots = []
+        for png in screenshots_dir.glob("**/*.png"):
+            content_hash = hashlib.md5(png.read_bytes()).hexdigest()[:8]
+            if content_hash not in uploaded_hashes:
+                new_screenshots.append((png, content_hash))
+
+        if not new_screenshots:
+            return uploaded_hashes
+
+        gh = Github(github_token)
+        repo = gh.get_repo(github_repo)
+        issue = repo.get_issue(issue_number)
+
+        timestamp = datetime.now(timezone.utc).strftime("%H:%M UTC")
+        comment = f"📸 **Screenshots** ({timestamp})\n\n"
+
+        for png_path, content_hash in new_screenshots[:5]:  # Limit to 5 per comment
+            comment += f"**{png_path.name}**\n\n"
+            uploaded_hashes.add(content_hash)
+
+        if len(new_screenshots) > 5:
+            comment += f"\n*...and {len(new_screenshots) - 5} more screenshots*\n"
+
+        issue.create_comment(comment)
+        print(f"Posted {len(new_screenshots)} screenshot(s) to issue #{issue_number}")
+
+        return uploaded_hashes
+
+    except Exception as e:
+        print(f"Error posting screenshots: {e}")
+        return uploaded_hashes
+
+
+def get_uploaded_screenshots_from_github(
+    github_repo: str,
+    issue_number: int,
+    github_token: str
+) -> set:
+    """Query issue comments to find already-uploaded screenshot hashes.
+
+    Used for deduplication when resuming a session.
+
+    Args:
+        github_repo: Repository in format "owner/repo"
+        issue_number: GitHub issue number
+        github_token: GitHub token
+
+    Returns:
+        Set of screenshot filenames that were already posted
+    """
+    try:
+        from github import Github
+        import re
+
+        gh = Github(github_token)
+        repo = gh.get_repo(github_repo)
+        issue = repo.get_issue(issue_number)
+
+        uploaded = set()
+        for comment in issue.get_comments():
+            if "📸 **Screenshots**" in comment.body:
+                # Extract screenshot filenames from comment
+                matches = re.findall(r'\*\*([^*]+\.png)\*\*', comment.body)
+                uploaded.update(matches)
+
+        print(f"Found {len(uploaded)} previously uploaded screenshots")
+        return uploaded
+
+    except Exception as e:
+        print(f"Error getting uploaded screenshots: {e}")
+        return set()
 
 
 def main():
@@ -576,13 +1125,16 @@ Commits should reference this issue: `Ref: #{issue_number}`
         heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
         heartbeat_thread.start()
 
-        # Run the agent
-        exit_code = run_agent(
+        # Run the agent with monitoring (creates feature issues, posts progress)
+        exit_code = run_agent_with_monitoring(
             build_dir=build_dir,
             auth_token=auth_token,
             auth_type=auth_type,
+            github_repo=github_repo,
+            github_token=github_token,
             is_enhancement=is_enhancement,
-            feature_request_path=feature_request_path if is_enhancement else None
+            feature_request_path=feature_request_path if is_enhancement else None,
+            progress_interval=120  # Check progress every 2 minutes
         )
 
         # Stop heartbeat

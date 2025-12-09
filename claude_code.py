@@ -719,16 +719,14 @@ You do not need to be too aggressive in cleaning up claude-progress.txt - you'll
    - Build/dev scripts that are actively used (init.sh, package.json)
    - Current prompts (prompts/)
    - Session logs (logs/ directory - these are for debugging, never modify or delete)
-   - Human backlog (human_backlog.json - contains explicit human requests, never modify or delete)
 
 6. **Don't overthink organization.** You don't need a perfect folder structure. You need fewer files.
 
 ## Critical Rules
 
 - **NEVER modify tests.json test completions**
-- **NEVER delete src/, prompts/, claude-progress.txt, tests.json, logs/, human_backlog.json**
+- **NEVER delete src/, prompts/, claude-progress.txt, tests.json, logs/**
 - **NEVER modify or delete anything in logs/ directory** (session logs for debugging)
-- **NEVER modify or delete human_backlog.json** (contains explicit human feature/bug requests)
 - **NEVER implement new features or fix bugs** - this is cleanup only
 - **NEVER remove or modify files in prompts/** (these are the source of truth for requirements)
 - **DO create a git commit before major deletions** for easy rollback
@@ -1174,70 +1172,62 @@ CRITICAL PORT CONFIGURATION:
 
 """
             message += """
-You absolutely must start by writing a detailed testing plan in tests.json. This should include at least 200 extremely detailed end-to-end tests that must be completed using Playwright CLI for screenshots and manual verification. The JSON file should be an array of objects in this format:
+You absolutely must start by writing a detailed testing plan in tests.json with tests grouped by feature.
+
+FEATURE IDENTIFICATION:
+First, analyze the BUILD_PLAN.md to identify logical feature areas. Features typically map to:
+- Major UI pages/views (e.g., "dashboard", "settings-page", "user-profile")
+- Core functionality sections (e.g., "authentication", "data-sync", "search")
+- Key components (e.g., "navigation", "forms", "notifications")
+
+Use kebab-case for feature IDs (e.g., "board-view", "issue-detail", "global-search").
+
+TEST FORMAT:
+The JSON file should be an array of objects. Each test MUST include a `feature` field:
 [
-  {"category": "functional",
-    "description": "User can sign in and navigate to the home page",
-    "steps": [
-      "Navigate to the sign-in page",
-      "Enter credentials",
-      "Click sign-in button",
-      "Verify redirection to home page"
+  {"feature": "dashboard",
+   "category": "functional",
+   "description": "Dashboard shows recent activity feed",
+   "steps": [
+      "Navigate to the dashboard",
+      "Verify recent activity section is visible",
+      "Verify activity items are displayed in chronological order"
     ],
     "passes": false
   },
-  {"category": "style",
-    "description": "Sign-in component is perfectly formatted, well-spaced, clean, and modern",
-    "steps": [
-      "Navigate to the sign-in page",
+  {"feature": "dashboard",
+   "category": "style",
+   "description": "Dashboard has proper spacing and modern design",
+   "steps": [
+      "Navigate to the dashboard",
       "Take a screenshot",
-      "Verify that the forms and buttons on the sign-in page are well-spaced",
-      "Verify redirection to home page"
+      "Verify consistent spacing between sections",
+      "Verify typography hierarchy is clear"
     ],
     "passes": false
   },
-  ...
-]
-
-There should be distinct tests for both functionality and style/UI quality. For example, a good end-to-end test case is 'Navigated to Page X. Clicked the Search Bar. Inputted Text. Clicked the Search button. Saw Successful search results.'. You can only mark a test as complete once you have successfully completed a run through the web site and reviewed the screenshots.
-
-There should be a good mix of both short and very long functional tests. A functional test can span as many as 20 steps. For example, a long functional test may require logging in to the app, opening a DM with another user, sending a message, starting a thread in that message, replying in that thread, and seeing the AI response in that thread. At least 25 of the tests MUST have at least 10 steps.
-
-Order the tests with the most fundamental functionality first, and the most advanced features last. This way, you can build up the app piece by piece and verify that the core functionality is working before moving on to more advanced features. You should also start with a foundation for a beautiful, modern design.
-
-Make sure you don't miss anything! It's extremely important that we implement every feature so that this is a fully production-quality website with no bugs. You have unlimited time, so take as long as you need to get everything perfect. This is not a demo, it's a production-quality final product.
-
-If a file called `human_backlog.json` exists in the project root, check it for any specific feature requests or bug fixes that a human has explicitly requested. These should be prioritized based on priority and status. The file format is a JSON array with items like:
-
-[
-  {
-    "id": "1760571330555",
-    "type": "bug" | "feature" | "idea",
-    "priority": "low" | "medium" | "high" | "critical",
-    "status": "backlog" | "in progress" | "blocked" | "done",
-    "description": "Brief description",
-    "details": "Additional context or requirements",
-    "comments": [
-      {
-        "author": "agent" | "human",
-        "timestamp": "2025-10-15T23:42:06.734Z",
-        "text": "Comment text with updates or discussions"
-      }
+  {"feature": "settings-page",
+   "category": "functional",
+   "description": "User can update profile settings",
+   "steps": [
+      "Navigate to settings",
+      "Update display name",
+      "Click save",
+      "Verify changes are persisted"
     ],
-    "added": "2025-10-15T23:35:30.555Z",
-    "completed": false,
-    "completedDate": null
+    "passes": false
   }
 ]
 
-IMPORTANT RULES for human_backlog.json:
-- DO NOT modify id, type, priority, description, details, or added fields - these are set by the human
-- You MAY add comments to the comments array to discuss progress or ask questions
-- You MAY change status from "backlog" → "in progress" → "done" as you work on items
-- When marking as "done", set completed: true, completedDate: "<ISO timestamp>", status: "done"
-- If blocked, set status: "blocked" and add a comment explaining why
-- DO NOT delete items from this file - mark them as done instead
-- Prioritize items by: critical > high > medium > low, and "in progress" items should be finished first
+TEST REQUIREMENTS:
+- Include at least 200 extremely detailed end-to-end tests
+- There should be distinct tests for both functionality and style/UI quality
+- Group all tests for one feature together before moving to the next feature
+- Order features with the most fundamental first (e.g., navigation, layout) and advanced features last
+- A good mix of short and long tests - at least 25 tests MUST have at least 10 steps
+- You can only mark a test as complete once you have successfully verified it with screenshots
+
+Make sure you don't miss anything! It's extremely important that we implement every feature so that this is a fully production-quality website with no bugs. You have unlimited time, so take as long as you need to get everything perfect. This is not a demo, it's a production-quality final product.
 
 Since the next session will start without much context, you should also try writing a script like `init.sh` that can quickly restart both the backend and frontend servers and document it so that the continuation can quickly get the app set up without too much work. You should also set up a unit test suite that can be run as part of the `init.sh` script at the beginning of a continuation session.
 
@@ -1269,53 +1259,11 @@ You absolutely must start by reading the claude-progress.txt and tests.json file
 3. Continue from where the previous session left off
 4. Make a regular commit once you complete the work that was in progress
 
-Check if a file called `human_backlog.json` exists in the project root. If it does, read it at the start of your session. This file contains feature requests and bug fixes that a human has explicitly requested. Prioritize these items based on their priority and status.
-
-The file format is a JSON array of items like:
-[
-  {{
-    "id": "1760571330555",
-    "type": "bug" | "feature" | "idea",
-    "priority": "low" | "medium" | "high" | "critical",
-    "status": "backlog" | "in progress" | "blocked" | "done",
-    "description": "Brief description",
-    "details": "Additional context or requirements",
-    "comments": [
-      {{
-        "author": "agent" | "human",
-        "timestamp": "2025-10-15T23:42:06.734Z",
-        "text": "Comment text with updates or discussions"
-      }}
-    ],
-    "added": "2025-10-15T23:35:30.555Z",
-    "completed": false,
-    "completedDate": null
-  }}
-]
-
-IMPORTANT RULES for human_backlog.json:
-- DO NOT modify id, type, priority, description, details, or added fields - these are set by the human
-- You MAY add comments to the comments array to discuss progress or ask questions
-- You MAY change status from "backlog" → "in progress" → "done" as you work on items
-- When marking as "done", set completed: true, completedDate: "<ISO timestamp>", status: "done"
-- If blocked, set status: "blocked" and add a comment explaining why
-- DO NOT delete items from this file - mark them as done instead
-- Prioritize items by: critical > high > medium > low, and "in progress" items should be finished first
-
 If `init.sh` already exists, you should run it to restart the servers. Otherwise, since the next session will start without much context, you should try writing a script called `init.sh` that can quickly restart both the backend and frontend servers and document it so that the continuation can quickly get the app set up without too much work.
 
 `init.sh` should start by running a unit test suite. You should add to this unit test suite as you add new features, and make sure it continues to pass all tests before moving on to Playwright tests.
 
 CRITICAL: YOU CAN ONLY CHANGE ONE LINE OF THE tests.json FILE AT A TIME. THE ONLY CHANGES YOU CAN MAKE TO THE TESTS IS CHANGING THE "passes" FIELD, AND YOU MAY ONLY DO THIS WHEN YOU HAVE VERIFIED THAT A TEST PASSES BY DOING THE TESTING YOURSELF. IT IS CATASTROPHIC TO REMOVE OR EDIT TESTS BECAUSE THIS MEANS THAT FUNCTIONALITY COULD BE MISSING OR BUGGY.
-
-**IMPORTANT**: If human_backlog.json exists, prioritize items in this order:
-1. Items with status "in progress" - finish what was started
-2. Items with priority "critical" - urgent bugs or features
-3. Items with priority "high" - important work
-4. Items with priority "medium" - standard backlog items
-5. Items with priority "low" - nice-to-haves
-
-These are explicit human requests that take precedence over general test completion work.
 
 Since this is a continuation session, you should be very skeptical about the current state of the project. The last session may have broken tests that were marked as complete. After reading the progress notes, you should start the session by running through 1-2 of the longest and most fundamental functional tests that are marked as complete, if any are. If this verification shows any issues at all, you should immediately mark the test as "passes": false and work on fixing it before moving on to new features. This includes UI bugs: if you see issues, you should fix those immediately. Make a list of any UI imperfections that you see and prioritize those above adding new functionality.
 
