@@ -1,6 +1,9 @@
 # Core dependencies
 claude-agent-sdk>=0.1.6
 
+# Development tools (not needed in Docker)
+# pip install ruff pyright
+
 # GitHub integration
 PyGithub>=2.8.1
 

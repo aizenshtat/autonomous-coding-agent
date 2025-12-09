@@ -18,7 +18,6 @@ Environment Variables:
     SESSION_DURATION_HOURS: Maximum session duration (default: 7.0)
 """
 
-import asyncio
 import hashlib
 import json
 import os
@@ -29,7 +28,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional, List
+from typing import Any, Optional
 
 # Add src to path for imports
 sys.path.insert(0, '/app/src')
@@ -47,10 +46,11 @@ except ImportError:
 
 # Import GitHub integration
 try:
-    from github_integration import GitHubIssueManager
+    from github_integration import GitHubIssueManager  # noqa: F401
     GITHUB_INTEGRATION_AVAILABLE = True
 except ImportError:
     GITHUB_INTEGRATION_AVAILABLE = False
+    GitHubIssueManager = None  # noqa: F811
     print("Warning: GitHub integration not available")
 
 # Import local metrics publisher
@@ -303,7 +303,7 @@ def write_session_state(
     state_path.write_text(json.dumps(state, indent=2))
 
 
-def read_session_state(workspace_dir: Path) -> Optional[Dict]:
+def read_session_state(workspace_dir: Path) -> Optional[dict]:
     """Read session state from local file."""
     state_path = workspace_dir / "session_state.json"
 
@@ -407,9 +407,9 @@ def run_agent_with_monitoring(
     print(f"Agent started (PID: {agent_process.pid})")
 
     # Initialize tracking state
-    last_progress: Dict[int, int] = {}
+    last_progress: dict[int, int] = {}
     feature_issues_created = False
-    feature_to_issue: Dict[str, int] = {}
+    feature_to_issue: dict[str, int] = {}
 
     # Monitoring loop - runs while agent is active
     last_check = time.time()
@@ -685,7 +685,7 @@ def create_product_repo(
 # Feature Issue Management
 # =============================================================================
 
-def extract_features_from_tests(tests_json_path: Path) -> List[str]:
+def extract_features_from_tests(tests_json_path: Path) -> list[str]:
     """Extract unique feature IDs from generated tests.json.
 
     Args:
@@ -717,8 +717,8 @@ def extract_features_from_tests(tests_json_path: Path) -> List[str]:
 def create_feature_issues(
     github_repo: str,
     github_token: str,
-    features: List[str]
-) -> Dict[str, int]:
+    features: list[str]
+) -> dict[str, int]:
     """Create GitHub issues for each feature extracted from tests.
 
     Args:
@@ -788,7 +788,7 @@ def create_feature_issues(
 
 def assign_issue_numbers_to_tests(
     tests_json_path: Path,
-    feature_to_issue: Dict[str, int]
+    feature_to_issue: dict[str, int]
 ) -> bool:
     """Add issueNumber field to each test based on its feature.
 
@@ -821,11 +821,11 @@ def assign_issue_numbers_to_tests(
 # =============================================================================
 
 def post_feature_progress(
-    tests: List[Dict],
+    tests: list[dict],
     github_repo: str,
     github_token: str,
-    last_progress: Dict[int, int]
-) -> Dict[int, int]:
+    last_progress: dict[int, int]
+) -> dict[int, int]:
     """Post progress updates to feature issues, close when complete.
 
     Args:

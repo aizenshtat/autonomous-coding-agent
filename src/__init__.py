@@ -1,8 +1,9 @@
 """Claude Code utilities package."""
 
-from .cloudwatch_metrics import MetricsPublisher
 from .config import *
 from .git_manager import GitHubConfig, GitManager
+from .github_integration import GitHubIssueManager
+from .local_metrics import LocalMetricsPublisher
 from .logging_utils import LoggingManager
 from .prompt_templates import PromptTemplater
 from .security import SecurityValidator
@@ -18,7 +19,8 @@ __all__ = [
     "LoggingManager",
     "SessionManager",
     "SecurityValidator",
-    "MetricsPublisher",
+    "LocalMetricsPublisher",
     "GitManager",
     "GitHubConfig",
+    "GitHubIssueManager",
 ]
