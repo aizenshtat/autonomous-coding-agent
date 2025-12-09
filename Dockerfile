@@ -42,9 +42,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY claude_code.py .
-COPY vps_entrypoint.py .
-COPY src/ ./src/
+COPY agent/claude_code.py .
+COPY agent/vps_entrypoint.py .
+COPY agent/src/ ./src/
 COPY prompts/ ./prompts/
 COPY templates/frontend-scaffold/ ./frontend-scaffold-template/
 COPY templates/example-projects/ ./example-projects/
