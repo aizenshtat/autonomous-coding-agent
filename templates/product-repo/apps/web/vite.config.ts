@@ -13,10 +13,13 @@ export default defineConfig({
     },
   },
   server: {
-    host: '0.0.0.0', // Listen on all interfaces (required for Docker/ECS)
+    host: '0.0.0.0',
     strictPort: true,
-    hmr: {
-      clientPort: 443, // Use HTTPS port for HMR when behind ALB
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
     },
   },
 })

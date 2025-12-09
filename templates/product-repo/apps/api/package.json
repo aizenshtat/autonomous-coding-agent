@@ -1,0 +1,33 @@
+{
+  "name": "@repo/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon",
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:push": "prisma db push",
+    "prisma:studio": "prisma studio",
+    "prisma:validate": "prisma validate",
+    "prisma:deploy": "prisma migrate deploy"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.2.1",
+    "@repo/shared": "workspace:*",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "zod": "^4.0.14"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "nodemon": "^3.1.9",
+    "prisma": "^6.2.1",
+    "tsx": "^4.19.2"
+  }
+}

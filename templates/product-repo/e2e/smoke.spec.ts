@@ -28,7 +28,7 @@ test.describe('Smoke Tests', () => {
 
     page.on('response', response => {
       if (!response.ok() && response.status() >= 400) {
-        failedRequests.push(`${response.status()} ${response.url()}`);
+        failedRequests.push(`${String(response.status())} ${response.url()}`);
       }
     });
 

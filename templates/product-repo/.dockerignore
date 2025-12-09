@@ -1,0 +1,10 @@
+node_modules
+.git
+.env*
+*.md
+playwright-report
+coverage
+dist
+.husky
+.github
+e2e

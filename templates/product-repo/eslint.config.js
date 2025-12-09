@@ -1,36 +1,76 @@
-import js from '@eslint/js'
-import globals from 'globals'
-import reactHooks from 'eslint-plugin-react-hooks'
-import reactRefresh from 'eslint-plugin-react-refresh'
-import tseslint from 'typescript-eslint'
-import { globalIgnores } from 'eslint/config'
+import eslint from '@eslint/js';
+import tseslint from 'typescript-eslint';
 
-export default tseslint.config([
-  globalIgnores(['dist']),
+export default tseslint.config(
+  eslint.configs.recommended,
+  ...tseslint.configs.strictTypeChecked,
   {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      js.configs.recommended,
-      tseslint.configs.recommended,
-      reactHooks.configs['recommended-latest'],
-      reactRefresh.configs.vite,
-    ],
     languageOptions: {
-      ecmaVersion: 2020,
-      globals: globals.browser,
-    },
-    rules: {
-      // Turn all rules into warnings instead of errors
-      '@typescript-eslint/no-unused-vars': 'warn',
-      '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/ban-ts-comment': 'warn',
-      '@typescript-eslint/no-empty-function': 'warn',
-      '@typescript-eslint/no-non-null-assertion': 'warn',
-      'react-hooks/rules-of-hooks': 'warn',
-      'react-hooks/exhaustive-deps': 'warn',
-      'react-refresh/only-export-components': 'warn',
-      'no-unused-vars': 'off', // Turn off base rule as it's handled by TypeScript
-      'no-undef': 'off', // TypeScript handles this
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
     },
   },
-])
+  {
+    files: ['**/*.ts', '**/*.tsx'],
+    rules: {
+      // Strict rules - errors (not warnings)
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      '@typescript-eslint/explicit-module-boundary-types': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'warn',
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/await-thenable': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+
+      // General rules
+      'no-console': ['warn', { allow: ['warn', 'error', 'info'] }],
+      'prefer-const': 'error',
+      'no-var': 'error',
+      eqeqeq: ['error', 'always'],
+    },
+  },
+  {
+    // React-specific rules for web app
+    files: ['apps/web/**/*.tsx'],
+    rules: {
+      // Relax some rules for React components
+      '@typescript-eslint/no-misused-promises': [
+        'error',
+        { checksVoidReturn: { attributes: false } },
+      ],
+    },
+  },
+  {
+    // Relaxed rules for shadcn/ui generated components (these are third-party)
+    files: ['apps/web/src/components/ui/**/*.tsx', 'apps/web/src/hooks/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-unnecessary-condition': 'off',
+      '@typescript-eslint/restrict-template-expressions': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unnecessary-type-assertion': 'off',
+      '@typescript-eslint/no-confusing-void-expression': 'off',
+      '@typescript-eslint/no-unnecessary-template-expression': 'off',
+      '@typescript-eslint/no-unnecessary-type-conversion': 'off',
+      '@typescript-eslint/no-deprecated': 'off',
+    },
+  },
+  {
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/*.js',
+      '**/*.cjs',
+      '**/*.d.ts',
+      '**/playwright-report/**',
+      '**/coverage/**',
+    ],
+  }
+);
