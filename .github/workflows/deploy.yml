@@ -66,10 +66,10 @@ jobs:
             cd ~/autonomous-agent
 
             # Make deploy script executable
-            chmod +x deployment/deploy.sh
+            chmod +x agent/deployment/deploy.sh
 
             # Run deployment
-            ./deployment/deploy.sh
+            ./agent/deployment/deploy.sh
           ENDSSH
 
       - name: Verify deployment

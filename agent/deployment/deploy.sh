@@ -13,7 +13,8 @@ NC='\033[0m'
 
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+AGENT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(dirname "$AGENT_DIR")"
 
 log_step() { echo ""; echo -e "${YELLOW}$1${NC}"; }
 log_success() { echo -e "${GREEN}✓ $1${NC}"; }
@@ -36,7 +37,7 @@ log_success "Directories created"
 log_step "Building Docker image..."
 cd "$PROJECT_DIR"
 
-docker build -f Dockerfile.vps -t claude-code-agent:latest .
+docker build -f agent/deployment/Dockerfile -t claude-code-agent:latest .
 log_success "Docker image built"
 
 # Stop any existing container (but don't fail if none exists)
