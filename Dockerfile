@@ -1,7 +1,9 @@
-FROM public.ecr.aws/docker/library/python:3.12-slim
+# VPS Dockerfile for long-horizon coding agent
+# Simplified version without AWS dependencies
+
+FROM python:3.12-slim
 
 # Install system dependencies for Playwright, git operations, and process management
-# Also includes Chromium dependencies for Playwright headless browser
 RUN apt-get update && apt-get install -y \
     git \
     curl \
@@ -13,6 +15,9 @@ RUN apt-get update && apt-get install -y \
     jq \
     net-tools \
     findutils \
+    rsync \
+    openssh-client \
+    # Chromium dependencies for Playwright
     chromium \
     libnss3 \
     libnspr4 \
@@ -30,38 +35,38 @@ RUN apt-get update && apt-get install -y \
     libxshmfence1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Playwright will use its own Chromium downloaded via `npx playwright install chromium`
-
 WORKDIR /app
 
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Bedrock AgentCore SDK
-RUN pip install --no-cache-dir bedrock-agentcore
-
 # Copy application code
 COPY claude_code.py .
-COPY bedrock_entrypoint.py .
+COPY vps_entrypoint.py .
 COPY src/ ./src/
 COPY prompts/ ./prompts/
-COPY frontend-scaffold-template/ ./frontend-scaffold-template/
-COPY prompt_template.txt .
-COPY state_management.txt .
+COPY templates/frontend-scaffold/ ./frontend-scaffold-template/
+COPY templates/example-projects/ ./example-projects/
 
-# Install Claude Code CLI (required by Claude Agent SDK)
+# Install Claude Code CLI
 RUN npm install -g @anthropic-ai/claude-code
 
 # Install Playwright for browser automation (screenshots, testing)
 RUN npx playwright install chromium
 
-# Create workspace directory (ephemeral in AgentCore)
-RUN mkdir -p /app/workspace
+# Create directories
+RUN mkdir -p /app/workspace /app/metrics /app/previews /app/secrets
+
+# Create Claude config directory and pre-configure onboarding
+# This prevents the interactive onboarding prompts in headless mode
+RUN mkdir -p /root/.claude && \
+    echo '{"hasCompletedOnboarding": true}' > /root/.claude.json
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1
+ENV METRICS_FILE=/app/metrics/health.json
+# Note: CLAUDE_CODE_OAUTH_TOKEN should be set at runtime via secrets mount
 
 # Initialize workspace with required files at startup
-# Use opentelemetry-instrument to enable ADOT tracing for AgentCore observability
-CMD ["sh", "-c", "cp -r /app/prompts /app/workspace/ 2>/dev/null || true && cp -r /app/frontend-scaffold-template /app/workspace/ 2>/dev/null || true && opentelemetry-instrument python bedrock_entrypoint.py"]
+CMD ["sh", "-c", "cp -r /app/prompts /app/workspace/ 2>/dev/null || true && cp -r /app/frontend-scaffold-template /app/workspace/ 2>/dev/null || true && cp -r /app/example-projects /app/workspace/ 2>/dev/null || true && python vps_entrypoint.py"]
