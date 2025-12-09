@@ -68,36 +68,32 @@ jobs:
           fi
 
           # Post comment to issue
-          WORKFLOW_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-
           if [ "$STOP_STATUS" = "stopped" ]; then
-            COMMENT="**Agent Container Stopped**
+            gh issue comment $ISSUE_NUMBER --repo $GITHUB_REPOSITORY --body "**Agent Container Stopped**
 
-The agent container working on this issue has been stopped.
+          The agent container working on this issue has been stopped.
 
-| Field | Value |
-|-------|-------|
-| **Container** | \`claude-code-agent\` |
-| **Action** | Stopped and removed |
-| **Reason** | Issue closed |
+          | Field | Value |
+          |-------|-------|
+          | **Container** | \`claude-code-agent\` |
+          | **Action** | Stopped and removed |
+          | **Reason** | Issue closed |
 
----
-*Automated by GitHub Actions*"
+          ---
+          *Automated by GitHub Actions*"
           elif [ "$STOP_STATUS" = "different_issue" ]; then
-            COMMENT="**Issue Closed**
+            gh issue comment $ISSUE_NUMBER --repo $GITHUB_REPOSITORY --body "**Issue Closed**
 
-The agent container is currently working on a different issue (#$CURRENT_ISSUE) and was not stopped.
+          The agent container is currently working on a different issue (#$CURRENT_ISSUE) and was not stopped.
 
----
-*Automated by GitHub Actions*"
+          ---
+          *Automated by GitHub Actions*"
           else
-            COMMENT="**Issue Closed**
+            gh issue comment $ISSUE_NUMBER --repo $GITHUB_REPOSITORY --body "**Issue Closed**
 
-No agent container was running for this issue.
+          No agent container was running for this issue.
 
----
-*Automated by GitHub Actions*"
+          ---
+          *Automated by GitHub Actions*"
           fi
-
-          gh issue comment $ISSUE_NUMBER --repo $GITHUB_REPOSITORY --body "$COMMENT"
           echo "Posted status comment to issue"
