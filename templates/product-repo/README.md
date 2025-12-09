@@ -1,39 +1,69 @@
-# Product Repository Template
+# React + TypeScript + Vite
 
-This directory contains GitHub workflows and configuration that should be copied to each product repository created by the autonomous agent.
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-## Contents
+Currently, two official plugins are available:
 
-### `.github/workflows/`
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
-- **`deploy-preview.yml`** - Deploys the generated app to a preview URL when commits are pushed to `agent-runtime` branch
-- **`spec-bot.yml`** - Handles user feature requests via GitHub Issues (spec refinement, test generation)
+## Expanding the ESLint configuration
 
-## Setup
+If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
 
-When the agent creates a new product repo, these workflows are automatically copied. They require the following secrets to be configured in the product repo:
+```js
+export default tseslint.config([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
 
-### Required Secrets
+      // Remove tseslint.configs.recommended and replace with this
+      ...tseslint.configs.recommendedTypeChecked,
+      // Alternatively, use this for stricter rules
+      ...tseslint.configs.strictTypeChecked,
+      // Optionally, add this for stylistic rules
+      ...tseslint.configs.stylisticTypeChecked,
 
-| Secret | Description |
-|--------|-------------|
-| `VPS_HOST` | VPS hostname or IP address |
-| `VPS_SSH_KEY` | SSH private key for deployment |
-| `VPS_SSH_USER` | SSH username (usually `deploy`) |
-| `ANTHROPIC_API_KEY` | API key for spec-bot Claude calls |
+      // Other configs...
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
+```
 
-### Required Variables
+You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
 
-| Variable | Description |
-|----------|-------------|
-| `PREVIEWS_DOMAIN` | Domain for preview deployments (e.g., `previews.example.com`) |
-| `AUTHORIZED_APPROVERS` | Comma-separated GitHub usernames who can approve features |
+```js
+// eslint.config.js
+import reactX from 'eslint-plugin-react-x'
+import reactDom from 'eslint-plugin-react-dom'
 
-## How It Works
-
-1. **Agent creates product repo** with these workflows
-2. **Agent builds app** → pushes to `agent-runtime` branch
-3. **deploy-preview.yml** triggers → deploys to preview URL
-4. **User creates issue** with feature request
-5. **spec-bot.yml** triggers → refines spec, generates tests
-6. **Agent picks up new tests** → implements feature → cycle continues
+export default tseslint.config([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+      // Enable lint rules for React
+      reactX.configs['recommended-typescript'],
+      // Enable lint rules for React DOM
+      reactDom.configs.recommended,
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
+```

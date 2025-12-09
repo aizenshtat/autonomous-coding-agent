@@ -46,8 +46,7 @@ COPY agent/claude_code.py .
 COPY agent/vps_entrypoint.py .
 COPY agent/src/ ./src/
 COPY prompts/ ./prompts/
-COPY templates/frontend-scaffold/ ./frontend-scaffold-template/
-COPY templates/example-projects/ ./example-projects/
+# Note: templates/product-repo/ is fetched from GitHub at runtime, not baked into image
 
 # Install Claude Code CLI
 RUN npm install -g @anthropic-ai/claude-code
@@ -69,4 +68,4 @@ ENV METRICS_FILE=/app/metrics/health.json
 # Note: CLAUDE_CODE_OAUTH_TOKEN should be set at runtime via secrets mount
 
 # Initialize workspace with required files at startup
-CMD ["sh", "-c", "cp -r /app/prompts /app/workspace/ 2>/dev/null || true && cp -r /app/frontend-scaffold-template /app/workspace/ 2>/dev/null || true && cp -r /app/example-projects /app/workspace/ 2>/dev/null || true && python vps_entrypoint.py"]
+CMD ["sh", "-c", "cp -r /app/prompts /app/workspace/ 2>/dev/null || true && python vps_entrypoint.py"]
