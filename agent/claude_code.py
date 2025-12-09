@@ -82,8 +82,8 @@ def load_example_test(current_dir: str, project_name: Optional[str]) -> str:
             "navigating through the main pages and verifying core functionality works"
         )
 
-    # Try to load from prompts/{project}/EXAMPLE_TEST.txt
-    example_test_path = Path(f"{current_dir}/prompts/{project_name}/EXAMPLE_TEST.txt")
+    # Try to load from specs/{project}/EXAMPLE_TEST.txt
+    example_test_path = Path(f"{current_dir}/specs/{project_name}/EXAMPLE_TEST.txt")
 
     if example_test_path.exists():
         try:
@@ -717,7 +717,7 @@ You do not need to be too aggressive in cleaning up claude-progress.txt - you'll
    - Production code (src/, core config files)
    - Current progress tracking (claude-progress.txt can be edited/condensed but never deleted; tests.json test completions must NEVER be modified)
    - Build/dev scripts that are actively used (init.sh, package.json)
-   - Current prompts (prompts/)
+   - Current prompts (prompts/) and project specs (specs/)
    - Session logs (logs/ directory - these are for debugging, never modify or delete)
 
 6. **Don't overthink organization.** You don't need a perfect folder structure. You need fewer files.
@@ -725,10 +725,10 @@ You do not need to be too aggressive in cleaning up claude-progress.txt - you'll
 ## Critical Rules
 
 - **NEVER modify tests.json test completions**
-- **NEVER delete src/, prompts/, claude-progress.txt, tests.json, logs/**
+- **NEVER delete src/, prompts/, specs/, claude-progress.txt, tests.json, logs/**
 - **NEVER modify or delete anything in logs/ directory** (session logs for debugging)
 - **NEVER implement new features or fix bugs** - this is cleanup only
-- **NEVER remove or modify files in prompts/** (these are the source of truth for requirements)
+- **NEVER remove or modify files in prompts/ or specs/** (these are the source of truth for requirements)
 - **DO create a git commit before major deletions** for easy rollback
 - **DO test that the app still runs after cleanup** (run ./init.sh if it exists)
 - **DO document what you deleted and why** in your summary
@@ -1531,11 +1531,12 @@ def print_prompts_command(
         # Always use the generic system prompt from the top level
         # If prompts_dir ends with a project name, go up one level; otherwise use it directly
         if args.project:
-            # For specific projects: /path/to/prompts/project_name -> /path/to/prompts
-            top_level_prompts_dir = Path(prompts_dir).parent
+            # For specific projects: /path/to/specs/project_name -> /path/to/prompts
+            # Go up two levels from specs/project_name to get to app root, then prompts/
+            top_level_prompts_dir = Path(prompts_dir).parent.parent / "prompts"
         else:
-            # For default: /path/to/prompts -> use it directly
-            top_level_prompts_dir = Path(prompts_dir)
+            # For default: /path/to/specs -> /path/to/prompts
+            top_level_prompts_dir = Path(prompts_dir).parent / "prompts"
 
         # System prompt no longer uses template variables
         system_prompt_path = top_level_prompts_dir / "system_prompt.txt"

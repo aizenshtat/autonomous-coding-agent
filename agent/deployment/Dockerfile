@@ -45,7 +45,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY agent/claude_code.py .
 COPY agent/vps_entrypoint.py .
 COPY agent/src/ ./src/
-COPY prompts/ ./prompts/
+COPY agent/prompts/ ./prompts/
+# Project specs (like canopy/) - your portfolio of projects
+COPY specs/ ./specs/
 # Note: templates/product-repo/ is fetched from GitHub at runtime, not baked into image
 
 # Install Claude Code CLI

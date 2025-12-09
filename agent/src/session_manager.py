@@ -32,10 +32,10 @@ class SessionManager:
             ValueError: If required project files are missing
         """
         if project_name:
-            project_prompts_dir = Path(f"{current_dir}/prompts/{project_name}")
+            project_prompts_dir = Path(f"{current_dir}/specs/{project_name}")
             if not project_prompts_dir.exists():
                 raise FileNotFoundError(
-                    f"Project prompts directory not found: {project_prompts_dir}"
+                    f"Project specs directory not found: {project_prompts_dir}"
                 )
 
             # Validate required files exist
@@ -53,7 +53,7 @@ class SessionManager:
             return str(project_prompts_dir)
         else:
             # Use default prompts directory
-            return f"{current_dir}/prompts"
+            return f"{current_dir}/specs"
 
     @staticmethod
     def list_available_projects(current_dir: str) -> list[str]:
@@ -65,7 +65,7 @@ class SessionManager:
         Returns:
             List of project names
         """
-        prompts_dir = Path(f"{current_dir}/prompts")
+        prompts_dir = Path(f"{current_dir}/specs")
         if not prompts_dir.exists():
             return []
 
@@ -167,11 +167,11 @@ class SessionManager:
         else:
             builtins.print("  ⚠️  prompt_template.txt not found")
 
-        # Copy top-level prompts/system_prompt.txt
+        # Copy agent prompts/system_prompt.txt
         system_prompt = repo_root / "prompts" / "system_prompt.txt"
         if system_prompt.exists():
             shutil.copy2(system_prompt, reference_dir / "system_prompt.txt")
-            builtins.print("  ✓ prompts/system_prompt.txt")
+            builtins.print("  ✓ system_prompt.txt")
         else:
             builtins.print("  ⚠️  system_prompt.txt not found")
 
