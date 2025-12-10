@@ -183,6 +183,7 @@ if [ -f "$SSH_KEY_PATH" ]; then
 else
     log_info "Generating SSH keypair for deploy user..."
     mkdir -p /home/deploy/.ssh
+    chown deploy:deploy /home/deploy/.ssh
     chmod 700 /home/deploy/.ssh
     sudo -u deploy ssh-keygen -t ed25519 -f "$SSH_KEY_PATH" -N "" -C "deploy@$(hostname)"
     chmod 600 "$SSH_KEY_PATH"
