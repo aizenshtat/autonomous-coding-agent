@@ -27,11 +27,10 @@ log_error() { echo -e "${RED}✗ $1${NC}"; }
 log_step "🚀 Deploying Autonomous Coding Agent"
 echo "Project directory: $PROJECT_DIR"
 
-# Create required directories
+# Create required directories (if not already created by bootstrap)
 log_step "Creating directories..."
-sudo mkdir -p /opt/agent/{workspace,metrics,secrets,data}
-sudo chown -R $USER:$USER /opt/agent
-log_success "Directories created"
+mkdir -p /opt/agent/{workspace,metrics,secrets,data} 2>/dev/null || true
+log_success "Directories ready"
 
 # Build Docker image
 log_step "Building Docker image..."
