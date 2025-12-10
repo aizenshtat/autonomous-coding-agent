@@ -53,7 +53,10 @@ jobs:
               echo "$GITHUB_TOKEN_SECRET" > /opt/agent/secrets/github_token
             fi
 
-            chmod 600 /opt/agent/secrets/*
+            # Only chmod if files exist
+            if ls /opt/agent/secrets/* 1> /dev/null 2>&1; then
+              chmod 600 /opt/agent/secrets/*
+            fi
           ENDSSH
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
