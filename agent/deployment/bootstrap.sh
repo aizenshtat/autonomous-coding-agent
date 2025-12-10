@@ -195,8 +195,17 @@ fi
 # Setup authorized_keys for GitHub Actions to SSH in
 if [ ! -f /home/deploy/.ssh/authorized_keys ]; then
     touch /home/deploy/.ssh/authorized_keys
-    chmod 600 /home/deploy/.ssh/authorized_keys
-    chown deploy:deploy /home/deploy/.ssh/authorized_keys
+fi
+chmod 600 /home/deploy/.ssh/authorized_keys
+chown deploy:deploy /home/deploy/.ssh/authorized_keys
+
+# Add the generated public key to authorized_keys (if not already there)
+PUB_KEY=$(cat "${SSH_KEY_PATH}.pub")
+if ! grep -qF "$PUB_KEY" /home/deploy/.ssh/authorized_keys 2>/dev/null; then
+    echo "$PUB_KEY" >> /home/deploy/.ssh/authorized_keys
+    log_success "Public key added to authorized_keys"
+else
+    log_warning "Public key already in authorized_keys"
 fi
 
 # ============================================================================
