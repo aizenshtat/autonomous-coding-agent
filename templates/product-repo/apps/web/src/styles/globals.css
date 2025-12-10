@@ -42,6 +42,30 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Semantic status colors */
+  --success: oklch(0.59 0.17 145);
+  --success-foreground: #ffffff;
+  --warning: oklch(0.75 0.18 85);
+  --warning-foreground: #1a1a1a;
+  --info: oklch(0.62 0.19 250);
+  --info-foreground: #ffffff;
+
+  /* Surface variations */
+  --surface-1: var(--background);
+  --surface-2: oklch(0.98 0 0);
+  --surface-3: oklch(0.96 0 0);
+
+  /* Text variations */
+  --text-primary: var(--foreground);
+  --text-secondary: var(--muted-foreground);
+  --text-tertiary: oklch(0.55 0 0);
+  --text-disabled: oklch(0.7 0 0);
+
+  /* Interactive states */
+  --hover: oklch(0.96 0 0);
+  --active: oklch(0.94 0 0);
+  --focus-ring: var(--primary);
 }
 
 .dark {
@@ -79,6 +103,30 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.269 0 0);
   --sidebar-ring: oklch(0.439 0 0);
+
+  /* Semantic status colors - dark mode */
+  --success: oklch(0.65 0.19 145);
+  --success-foreground: oklch(0.15 0 0);
+  --warning: oklch(0.78 0.16 85);
+  --warning-foreground: oklch(0.15 0 0);
+  --info: oklch(0.68 0.17 250);
+  --info-foreground: oklch(0.15 0 0);
+
+  /* Surface variations - dark mode */
+  --surface-1: var(--background);
+  --surface-2: oklch(0.18 0 0);
+  --surface-3: oklch(0.22 0 0);
+
+  /* Text variations - dark mode */
+  --text-primary: var(--foreground);
+  --text-secondary: var(--muted-foreground);
+  --text-tertiary: oklch(0.6 0 0);
+  --text-disabled: oklch(0.45 0 0);
+
+  /* Interactive states - dark mode */
+  --hover: oklch(0.22 0 0);
+  --active: oklch(0.26 0 0);
+  --focus-ring: oklch(0.7 0.15 250);
 }
 
 @theme inline {
@@ -120,6 +168,30 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Semantic status colors */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  /* Surface variations */
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
+  /* Text variations */
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-disabled: var(--text-disabled);
+
+  /* Interactive states */
+  --color-hover: var(--hover);
+  --color-active: var(--active);
+  --color-focus-ring: var(--focus-ring);
 }
 
 @layer base {
