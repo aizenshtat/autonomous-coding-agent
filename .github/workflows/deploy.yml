@@ -39,25 +39,22 @@ jobs:
 
       - name: Create secrets on VPS
         run: |
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH'
-            mkdir -p /opt/agent/secrets
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "mkdir -p /opt/agent/secrets"
 
-            # Write secrets (only if provided)
-            if [ -n "$ANTHROPIC_API_KEY" ]; then
-              echo "$ANTHROPIC_API_KEY" > /opt/agent/secrets/anthropic_api_key
-            fi
-            if [ -n "$CLAUDE_OAUTH_TOKEN" ]; then
-              echo "$CLAUDE_OAUTH_TOKEN" > /opt/agent/secrets/claude_oauth_token
-            fi
-            if [ -n "$GITHUB_TOKEN_SECRET" ]; then
-              echo "$GITHUB_TOKEN_SECRET" > /opt/agent/secrets/github_token
-            fi
+          # Write Claude OAuth token if provided
+          if [ -n "$CLAUDE_OAUTH_TOKEN" ]; then
+            ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "echo '$CLAUDE_OAUTH_TOKEN' > /opt/agent/secrets/claude_oauth_token && chmod 600 /opt/agent/secrets/claude_oauth_token"
+          fi
 
-            # Only chmod if files exist
-            if ls /opt/agent/secrets/* 1> /dev/null 2>&1; then
-              chmod 600 /opt/agent/secrets/*
-            fi
-          ENDSSH
+          # Write Anthropic API key if provided
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "echo '$ANTHROPIC_API_KEY' > /opt/agent/secrets/anthropic_api_key && chmod 600 /opt/agent/secrets/anthropic_api_key"
+          fi
+
+          # Write GitHub token
+          if [ -n "$GITHUB_TOKEN_SECRET" ]; then
+            ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "echo '$GITHUB_TOKEN_SECRET' > /opt/agent/secrets/github_token && chmod 600 /opt/agent/secrets/github_token"
+          fi
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_OAUTH_TOKEN: ${{ secrets.CLAUDE_OAUTH_TOKEN }}
